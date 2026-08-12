@@ -20,6 +20,9 @@ python -m seele_maya.bridge.server
 
 取消任务：`POST /v1/transfers/{transferId}/cancel`。
 
+`GET /v1/health` 只会在真实 Maya 环境中成功加载 `fbxmaya` 后声明 `fbx`
+capability；普通 Python 启动仅用于检查 receiver contract，不接受真实 transfer。
+
 ## Maya 安装
 
 将 `SeeleMaya.mod` 和 `SeeleMaya/` 放入 Maya modules 目录，然后在 Plug-in

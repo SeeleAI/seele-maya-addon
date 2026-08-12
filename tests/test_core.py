@@ -24,6 +24,9 @@ class TestDownloadUrl(unittest.TestCase):
             self.assertTrue(downloader._allowed('https://cdn.assets.example.com/a.fbx'))
             self.assertFalse(downloader._allowed('https://assets.example.com.evil/a.fbx'))
             self.assertFalse(downloader._allowed('http://assets.example.com/a.fbx'))
+            self.assertFalse(downloader._allowed('https://assets.example.com:444/a.fbx'))
+            downloader.ALLOWED_DOWNLOAD_HOSTS=('127.0.0.1',)
+            self.assertFalse(downloader._allowed('https://127.0.0.1/a.fbx'))
         finally: downloader.ALLOWED_DOWNLOAD_HOSTS=old
 
 class TestManager(unittest.TestCase):
@@ -33,3 +36,10 @@ class TestManager(unittest.TestCase):
         manager.accept(base); manager.accept(dict(base))
         changed=dict(base); changed['displayName']='b'
         with self.assertRaises(ValueError): manager.accept(changed)
+    def test_transition_guard(self):
+        manager=TransferManager(); manager._run=lambda tid: None
+        item=manager.accept({'transferId':str(uuid.uuid4()),'files':[]})
+        with self.assertRaises(ValueError): manager.transition(item['transferId'],'completed')
+    def test_shutdown_rejects_new_transfer(self):
+        manager=TransferManager(); manager.shutdown(0)
+        with self.assertRaisesRegex(ValueError,'RECEIVER_STOPPING'): manager.accept({'transferId':str(uuid.uuid4()),'files':[]})

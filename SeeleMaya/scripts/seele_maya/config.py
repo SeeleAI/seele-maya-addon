@@ -9,6 +9,10 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 CHALLENGE_TTL_SECONDS = 60
 MAX_FILES = 128
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+MAX_MANIFEST_TTL_SECONDS = 3600
+MAX_INFLIGHT_TRANSFERS = 8
+MAX_HTTP_THREADS = 16
+REQUEST_TIMEOUT_SECONDS = 10
 ALLOWED_ORIGINS = tuple(x.strip() for x in os.environ.get("SEELE_ALLOWED_ORIGINS", "").split(",") if x.strip())
 ALLOWED_DOWNLOAD_HOSTS = tuple(x.strip().lower() for x in os.environ.get("SEELE_ALLOWED_DOWNLOAD_HOSTS", "").split(",") if x.strip())
 

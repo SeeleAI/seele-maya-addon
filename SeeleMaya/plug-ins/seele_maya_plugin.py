@@ -1,25 +1,25 @@
-"""Maya plug-in entry point.  The receiver is intentionally started lazily."""
+"""Maya plug-in entry point and receiver lifecycle."""
 try:
     import maya.api.OpenMaya as om
 except ImportError:
     om = None
 
-_server = None
+class SeeleMayaStatus(om.MPxCommand if om else object):
+    def doIt(self,args):
+        from seele_maya.bridge.server import status
+        self.setResult(str(status()))
+
+def _creator(): return SeeleMayaStatus()
 
 def initializePlugin(plugin):
-    global _server
     if om:
         fn = om.MFnPlugin(plugin, "SEELE", "0.1.0", "Any")
-        # The first MVP keeps menu/UI registration optional; receiver startup is
-        # exposed as a separate action so initializePlugin never performs I/O.
-        try:
-            fn.registerCommand("seeleMayaStatus", lambda: None)
-        except Exception:
-            pass
+        fn.registerCommand("seeleMayaStatus",_creator)
+    from seele_maya.bridge.server import start
+    start()
 
 def uninitializePlugin(plugin):
+    from seele_maya.bridge.server import stop
+    stop()
     if om:
-        try:
-            om.MFnPlugin(plugin).deregisterCommand("seeleMayaStatus")
-        except Exception:
-            pass
+        om.MFnPlugin(plugin).deregisterCommand("seeleMayaStatus")
