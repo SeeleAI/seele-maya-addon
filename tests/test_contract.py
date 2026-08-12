@@ -17,3 +17,6 @@ class TestContract(unittest.TestCase):
   now=datetime.now(timezone.utc); m={'version':'dcc-transfer.v1','transferId':str(uuid.uuid4()),'receiverId':'r','target':{'dcc':'maya','format':'fbx'},'entryFileId':'m','createdAt':now.isoformat(),'expiresAt':(now+timedelta(minutes=10)).isoformat(),'limits':{'maxFiles':'bad'},'files':[{'id':'m','kind':'MODEL','format':'fbx','path':'a.fbx','sizeBytes':0,'sha256':'0'*64}]}
   with self.assertRaises(ContractError) as caught: validate_manifest(m,'r')
   self.assertEqual('MANIFEST_INVALID',caught.exception.code)
+ def test_timestamp_must_be_strict_rfc3339(self):
+  now=datetime.now(timezone.utc); m={'version':'dcc-transfer.v1','transferId':str(uuid.uuid4()),'receiverId':'r','target':{'dcc':'maya','format':'fbx'},'entryFileId':'m','createdAt':now.strftime('%Y-%m-%d %H:%M:%S+00:00'),'expiresAt':(now+timedelta(minutes=10)).isoformat(),'files':[{'id':'m','kind':'MODEL','format':'fbx','path':'a.fbx','sizeBytes':0,'sha256':'0'*64}]}
+  with self.assertRaises(ContractError): validate_manifest(m,'r')

@@ -15,7 +15,12 @@ class BoundedHTTPServer(ThreadingHTTPServer):
     def __init__(self,*args,**kwargs):
         self._slots=threading.BoundedSemaphore(MAX_HTTP_THREADS); ThreadingHTTPServer.__init__(self,*args,**kwargs)
     def process_request(self,request,client_address):
-        if not self._slots.acquire(False): request.close(); return
+        if not self._slots.acquire(False):
+            body=json.dumps(envelope(error={"code":"SERVER_BUSY","message":"receiver is busy","retryable":True,"stage":"receiver"})).encode("utf-8")
+            response=("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n" % len(body)).encode("ascii")+body
+            try: request.sendall(response)
+            finally: request.close()
+            return
         try: ThreadingHTTPServer.process_request(self,request,client_address)
         except Exception: self._slots.release(); raise
     def process_request_thread(self,request,client_address):
@@ -64,6 +69,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception: return self._send(400,envelope(error={"code":"INVALID_JSON","message":"invalid JSON","retryable":False,"stage":"validation"}),origin)
         if self.path=="/v1/transfers":
             try:
+                if not isinstance(body,dict) or body.get("version")!="dcc-transfer.v1": raise ContractError("UNSUPPORTED_PROTOCOL","envelope version is unsupported")
                 if body.get("receiverId")!=RECEIVER_ID: raise ContractError("RECEIVER_MISMATCH","receiver mismatch")
                 err=challenges.consume(body.get("challenge"),RECEIVER_ID,origin)
                 if err: raise ContractError(err,err)

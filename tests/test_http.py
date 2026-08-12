@@ -25,3 +25,17 @@ class TestHttp(unittest.TestCase):
         finally: server.PORT=old_port
     def test_cancel_unknown_without_body(self):
         conn=HTTPConnection('127.0.0.1',self.httpd.server_port,timeout=3); conn.request('POST','/v1/transfers/missing/cancel',headers={'Origin':'https://app.test'}); response=conn.getresponse(); response.read(); conn.close(); self.assertEqual(404,response.status)
+    def test_envelope_version_required(self):
+        health_status,health=self.request('/v1/health','https://app.test'); self.assertEqual(200,health_status)
+        body=json.dumps({'receiverId':server.RECEIVER_ID,'challenge':health['data']['challenge'],'manifest':{}})
+        conn=HTTPConnection('127.0.0.1',self.httpd.server_port,timeout=3); conn.request('POST','/v1/transfers',body=body,headers={'Origin':'https://app.test','Content-Type':'application/json'}); response=conn.getresponse(); payload=json.loads(response.read()); conn.close()
+        self.assertEqual(400,response.status); self.assertEqual('UNSUPPORTED_PROTOCOL',payload['error']['code'])
+    def test_busy_returns_json_503(self):
+        class NoSlots(object):
+            def acquire(self,value): return False
+        first,second=__import__('socket').socketpair(); original=self.httpd._slots; self.httpd._slots=NoSlots()
+        try:
+            self.httpd.process_request(first,('127.0.0.1',1)); raw=second.recv(4096)
+            self.assertIn(b'503 Service Unavailable',raw); self.assertIn(b'"code": "SERVER_BUSY"',raw)
+        finally:
+            self.httpd._slots=original; second.close()

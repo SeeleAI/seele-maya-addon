@@ -15,8 +15,9 @@ python -m seele_maya.bridge.server
 `SEELE_ALLOWED_ORIGINS`、`SEELE_ALLOWED_DOWNLOAD_HOSTS`（逗号分隔）配置。
 
 提交 manifest 后会自动执行下载、校验和导入；下载地址必须是 HTTPS 且 host
-在 `SEELE_ALLOWED_DOWNLOAD_HOSTS` 中。没有 Maya 时使用 mock importer，便于
-联调 HTTP 协议；在 Maya 中会自动切换到 `fbxmaya`。
+在 `SEELE_ALLOWED_DOWNLOAD_HOSTS` 中。普通 Python 环境使用 mock readiness，
+只供 health、CORS 和错误 contract 测试，不接受真实 transfer；Maya 中会使用
+`fbxmaya`。
 
 取消任务：`POST /v1/transfers/{transferId}/cancel`。
 
@@ -26,5 +27,5 @@ capability；普通 Python 启动仅用于检查 receiver contract，不接受�
 ## Maya 安装
 
 将 `SeeleMaya.mod` 和 `SeeleMaya/` 放入 Maya modules 目录，然后在 Plug-in
-Manager 加载 `seele_maya_plugin.py`。插件入口会优雅降级到 mock importer，真实
-Maya 环境中可启用 FBX importer。
+Manager 加载 `seele_maya_plugin.py`。只有 `fbxmaya` 成功加载时才会声明并接受
+FBX transfer。

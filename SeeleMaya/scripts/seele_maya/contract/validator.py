@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from ..config import MAX_FILES, MAX_TOTAL_BYTES, MAX_MANIFEST_TTL_SECONDS
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 KNOWN_TOP = set(("version", "transferId", "receiverId", "target", "canvasId", "displayName", "entryFileId", "coordinateSystem", "unitScaleMeters", "files", "materials", "limits", "createdAt", "expiresAt"))
 
 class ContractError(ValueError):
@@ -12,6 +13,7 @@ class ContractError(ValueError):
 
 def _time(value):
     try:
+        if not isinstance(value,str) or not RFC3339.fullmatch(value): raise ValueError()
         parsed=datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None: raise ValueError()
         return parsed

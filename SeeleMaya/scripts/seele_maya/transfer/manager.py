@@ -9,6 +9,7 @@ from ..maya_api.main_thread import execute
 
 TRANSITIONS={"accepted":("downloading","cancelled","failed"),"downloading":("verifying","cancelled","failed"),"verifying":("queued","cancelled","failed"),"queued":("importing_geometry","cancelled","failed"),"importing_geometry":("organizing_scene","cancel_pending","failed"),"organizing_scene":("completed","completed_with_warnings","cancel_pending","failed"),"cancel_pending":("rollback","failed"),"rollback":("cancelled","failed")}
 TERMINAL=set(("completed", "completed_with_warnings", "failed", "cancelled"))
+PUBLIC_STATES=set(("accepted","downloading","verifying","queued","importing_geometry","organizing_scene","cancel_pending","completed","completed_with_warnings","failed","cancelled"))
 def _now(): return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
 def _safe_error(exc, default, stage):
     value=str(exc)
@@ -40,7 +41,9 @@ class TransferManager:
         with self.lock:
             item=self.items.get(tid)
             if not item: return None
-            return copy.deepcopy({k:v for k,v in item.items() if k not in ("manifest","digest","cancel")})
+            snapshot=copy.deepcopy({k:v for k,v in item.items() if k not in ("manifest","digest","cancel","importResult")})
+            if snapshot["state"] not in PUBLIC_STATES: snapshot["state"]="cancel_pending"
+            return snapshot
     def cancel(self, tid):
         with self.lock:
             item=self.items.get(tid)
@@ -63,6 +66,28 @@ class TransferManager:
             if remaining<=0: break
             worker.join(remaining)
         return not any(worker.is_alive() for worker in workers)
+    def _rollback_cancelled_import(self, tid, import_result):
+        with self.lock:
+            item=self.items[tid]
+            if item["state"] not in ("cancel_pending","rollback"):
+                self.transition(tid,"cancel_pending")
+            if item["state"]=="cancel_pending": self.transition(tid,"rollback")
+        execute(lambda: self.importer.rollback(import_result))
+        with self.lock:
+            if self.items[tid]["state"]=="rollback": self.transition(tid,"cancelled")
+    def _finish_import(self, tid, import_result):
+        item=self.items[tid]
+        public_result={k:v for k,v in import_result.items() if k in ("group","namespace","nodesCreated","warnings")}
+        with self.lock:
+            item["result"]=public_result; item["importResult"]=import_result
+            cancelled=item["cancel"].is_set() or item["state"]=="cancel_pending"
+            if not cancelled and item["state"]=="importing_geometry": self.transition(tid,"organizing_scene")
+        if cancelled:
+            self._rollback_cancelled_import(tid,import_result); return
+        with self.lock:
+            cancelled=item["cancel"].is_set() or item["state"]=="cancel_pending"
+            if not cancelled: self.transition(tid,"completed_with_warnings" if item["warnings"] else "completed")
+        if cancelled: self._rollback_cancelled_import(tid,import_result)
     def _run(self, tid):
         item=self.items[tid]; root=None
         try:
@@ -80,17 +105,14 @@ class TransferManager:
             if item["cancel"].is_set(): return self.transition(tid,"cancelled")
             self.transition(tid,"importing_geometry")
             import_result=execute(lambda: self.importer.import_transfer(item,root))
-            public_result={k:v for k,v in import_result.items() if k in ("group","namespace","nodesCreated","warnings")}
-            with self.lock: item["result"]=public_result
-            if item["cancel"].is_set():
-                if item["state"]!="cancel_pending": self.transition(tid,"cancel_pending")
-                self.transition(tid,"rollback"); execute(lambda: self.importer.rollback(import_result)); self.transition(tid,"cancelled"); return
-            self.transition(tid,"organizing_scene")
-            self.transition(tid,"completed_with_warnings" if item["warnings"] else "completed")
+            self._finish_import(tid,import_result)
         except ValueError as exc:
             state=item["state"]
             if item["cancel"].is_set() and state=="cancel_pending":
-                self.transition(tid,"rollback"); self.transition(tid,"cancelled"); target="cancelled"
+                import_result=item.get("importResult")
+                if import_result: self._rollback_cancelled_import(tid,import_result)
+                else: self.transition(tid,"rollback"); self.transition(tid,"cancelled")
+                target="cancelled"
             else:
                 target="cancelled" if str(exc)=="CANCELLED" else "failed"; self.transition(tid,target)
             with self.lock: item["error"]=_safe_error(exc,"DOWNLOAD_FAILED","download")
@@ -107,4 +129,5 @@ class TransferManager:
                 try: cleanup_staging(root)
                 except Exception: pass
         finally:
-            with self.lock: self.threads.pop(tid,None)
+            with self.lock:
+                self.threads.pop(tid,None); item.pop("importResult",None)

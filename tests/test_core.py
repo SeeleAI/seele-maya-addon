@@ -1,4 +1,4 @@
-import os, sys, time, unittest, uuid
+import os, sys, threading, unittest, uuid
 sys.path.insert(0, os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.bridge.challenge import ChallengeStore
 from seele_maya.transfer.manager import TransferManager
@@ -43,3 +43,19 @@ class TestManager(unittest.TestCase):
     def test_shutdown_rejects_new_transfer(self):
         manager=TransferManager(); manager.shutdown(0)
         with self.assertRaisesRegex(ValueError,'RECEIVER_STOPPING'): manager.accept({'transferId':str(uuid.uuid4()),'files':[]})
+    def _cancel_import_state(self,state):
+        class Importer(object):
+            def __init__(self): self.rollback_calls=0
+            def rollback(self,result): self.rollback_calls+=1
+        manager=TransferManager(); manager.importer=Importer(); tid=str(uuid.uuid4()); event=threading.Event()
+        manager.items[tid]={"transferId":tid,"state":state,"cancel":event,"warnings":[],"createdAt":"x","updatedAt":"x","manifest":{},"digest":"x"}
+        event.set()
+        if state=="importing_geometry": manager.transition(tid,"cancel_pending")
+        else: manager.transition(tid,"cancel_pending")
+        manager._finish_import(tid,{"group":"g","namespace":"n","nodesCreated":1,"createdNodes":["g"]})
+        self.assertEqual("cancelled",manager.get(tid)["state"]); self.assertEqual(1,manager.importer.rollback_calls)
+    def test_cancel_importing_rolls_back(self): self._cancel_import_state("importing_geometry")
+    def test_cancel_organizing_rolls_back(self): self._cancel_import_state("organizing_scene")
+    def test_internal_rollback_is_not_public(self):
+        manager=TransferManager(); tid=str(uuid.uuid4()); manager.items[tid]={"transferId":tid,"state":"rollback","cancel":threading.Event(),"warnings":[],"createdAt":"x","updatedAt":"x","manifest":{},"digest":"x"}
+        self.assertEqual("cancel_pending",manager.get(tid)["state"])
