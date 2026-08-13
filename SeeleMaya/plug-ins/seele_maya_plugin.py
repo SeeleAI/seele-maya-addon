@@ -4,6 +4,10 @@ try:
 except ImportError:
     om = None
 
+def maya_useNewAPI():
+    """Tell Maya to pass API 2.0 objects to the plug-in entry points."""
+    pass
+
 class SeeleMayaStatus(om.MPxCommand if om else object):
     def doIt(self,args):
         from seele_maya.bridge.server import status
@@ -13,7 +17,7 @@ def _creator(): return SeeleMayaStatus()
 
 def initializePlugin(plugin):
     if om:
-        fn = om.MFnPlugin(plugin, "SEELE", "0.1.0", "Any")
+        fn = om.MFnPlugin(plugin, "SEELE", "0.2.0", "Any")
         fn.registerCommand("seeleMayaStatus",_creator)
     from seele_maya.bridge.server import start
     start()

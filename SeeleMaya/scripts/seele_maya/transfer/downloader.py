@@ -4,7 +4,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from .staging import safe_path, open_part
 from ..config import ALLOWED_DOWNLOAD_HOSTS, MAX_TOTAL_BYTES
 
-def _allowed(url):
+def url_allowed(url):
     p=urlparse(url)
     if p.scheme != "https" or p.username or p.password or p.fragment or not p.hostname:
         return False
@@ -16,10 +16,12 @@ def _allowed(url):
     except ValueError: return False
     return any(host == h or host.endswith("."+h) for h in ALLOWED_DOWNLOAD_HOSTS)
 
+_allowed=url_allowed
+
 class SafeRedirect(HTTPRedirectHandler):
     max_redirections=4
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not _allowed(newurl): raise ValueError("REDIRECT_NOT_ALLOWED")
+        if not url_allowed(newurl): raise ValueError("REDIRECT_NOT_ALLOWED")
         return HTTPRedirectHandler.redirect_request(self,req,fp,code,msg,headers,newurl)
 
 class ByteBudget(object):
@@ -30,7 +32,7 @@ class ByteBudget(object):
 
 def download_file(spec, root, cancel_event, budget):
     url=spec.get("downloadUrl")
-    if not _allowed(url): raise ValueError("URL_NOT_ALLOWED")
+    if not url_allowed(url): raise ValueError("URL_NOT_ALLOWED")
     target=safe_path(root, spec["path"]); part=target+".part"; total=0; digest=hashlib.sha256()
     try:
         opener=build_opener(SafeRedirect())

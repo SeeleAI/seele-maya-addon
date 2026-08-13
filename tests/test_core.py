@@ -2,7 +2,10 @@ import os, sys, threading, unittest, uuid
 sys.path.insert(0, os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.bridge.challenge import ChallengeStore
 from seele_maya.transfer.manager import TransferManager
+from seele_maya.transfer.manager import _safe_error
+from seele_maya.contract.validator import ContractError
 import seele_maya.transfer.downloader as downloader
+from seele_maya.config import DEFAULT_ALLOWED_DOWNLOAD_HOSTS
 
 class TestChallenge(unittest.TestCase):
     def test_consume_once(self):
@@ -17,6 +20,20 @@ class TestChallenge(unittest.TestCase):
         self.assertEqual('CHALLENGE_EXPIRED',store.consume(token,'r','o'))
 
 class TestDownloadUrl(unittest.TestCase):
+    def test_official_hosts_are_allowed_by_default(self):
+        expected=(
+            'static.seeles.ai',
+            'seele-asset-public-1.s3.ap-southeast-1.amazonaws.com',
+            'd3lzqljvieno0e.cloudfront.net',
+            'seelemedia.s3.us-east-1.amazonaws.com',
+            'seelemedia.s3.amazonaws.com',
+            'seeleh5.blob.core.windows.net',
+            'd3vhd1f81y5p6c.cloudfront.net',
+        )
+        self.assertEqual(expected,DEFAULT_ALLOWED_DOWNLOAD_HOSTS)
+        for host in expected: self.assertTrue(downloader._allowed('https://'+host+'/asset.fbx'),host)
+        self.assertFalse(downloader._allowed('https://static.seeles.ai.evil.example/asset.fbx'))
+        self.assertFalse(downloader._allowed('https://evilstatic.seeles.ai/asset.fbx'))
     def test_exact_and_subdomain(self):
         old=downloader.ALLOWED_DOWNLOAD_HOSTS; downloader.ALLOWED_DOWNLOAD_HOSTS=('assets.example.com',)
         try:
@@ -30,6 +47,11 @@ class TestDownloadUrl(unittest.TestCase):
         finally: downloader.ALLOWED_DOWNLOAD_HOSTS=old
 
 class TestManager(unittest.TestCase):
+    def test_typed_dependency_error_is_preserved(self):
+        error=_safe_error(ContractError('DEPENDENCY_MISSING','local detail'),'IMPORT_FAILED','import')
+        self.assertEqual('DEPENDENCY_MISSING',error['code']); self.assertNotIn('local detail',error['message'])
+    def test_arbitrary_exception_is_not_public_code(self):
+        self.assertEqual('IMPORT_FAILED',_safe_error(RuntimeError('SOME_RANDOM_CODE'),'IMPORT_FAILED','import')['code'])
     def test_conflict(self):
         manager=TransferManager(); manager._run=lambda tid: None
         tid=str(uuid.uuid4()); base={'transferId':tid,'displayName':'a','files':[]}

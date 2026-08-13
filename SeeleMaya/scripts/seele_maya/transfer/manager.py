@@ -6,18 +6,19 @@ from .downloader import download_file, ByteBudget
 from ..config import MAX_TOTAL_BYTES, MAX_INFLIGHT_TRANSFERS
 from ..maya_api.importer import get_importer
 from ..maya_api.main_thread import execute
+from ..contract.dependencies import validate_obj_closure
 
 TRANSITIONS={"accepted":("downloading","cancelled","failed"),"downloading":("verifying","cancelled","failed"),"verifying":("queued","cancelled","failed"),"queued":("importing_geometry","cancelled","failed"),"importing_geometry":("organizing_scene","cancel_pending","failed"),"organizing_scene":("completed","completed_with_warnings","cancel_pending","failed"),"cancel_pending":("rollback","failed"),"rollback":("cancelled","failed")}
 TERMINAL=set(("completed", "completed_with_warnings", "failed", "cancelled"))
 PUBLIC_STATES=set(("accepted","downloading","verifying","queued","importing_geometry","organizing_scene","cancel_pending","completed","completed_with_warnings","failed","cancelled"))
 def _now(): return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
 def _safe_error(exc, default, stage):
-    value=str(exc)
-    code=value if value and value.replace("_","").isalnum() and value.upper()==value else default
-    messages={"CANCELLED":"transfer cancelled","HASH_MISMATCH":"file hash mismatch","SIZE_MISMATCH":"file size mismatch","SIZE_LIMIT_EXCEEDED":"transfer size limit exceeded","URL_NOT_ALLOWED":"download URL is not allowed","REDIRECT_NOT_ALLOWED":"download redirect is not allowed","PATH_UNSAFE":"unsafe staging path","STAGING_CONFLICT":"staging directory already exists"}
-    return {"code":code,"message":messages.get(code,"transfer failed"),"stage":stage,"retryable":False}
+    stable=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE","STAGING_CONFLICT","DEPENDENCY_MISSING","DEPENDENCY_UNSUPPORTED","FBX_PLUGIN_UNAVAILABLE","FBX_TRANSLATOR_UNAVAILABLE","OBJ_TRANSLATOR_UNAVAILABLE","ABC_PLUGIN_UNAVAILABLE","ABC_COMMAND_UNAVAILABLE","DAE_PLUGIN_UNAVAILABLE","DAE_TRANSLATOR_UNAVAILABLE","USD_PLUGIN_UNAVAILABLE","USDA_PLUGIN_UNAVAILABLE","USDC_PLUGIN_UNAVAILABLE","IMPORT_CREATED_NO_NODES","ROLLBACK_INCOMPLETE","ROLLBACK_FAILED","SERVER_BUSY","TOO_MANY_TRANSFERS","RECEIVER_STOPPING"))
+    candidate=getattr(exc,"code",None) or str(exc); code=candidate if candidate in stable else default
+    messages={"CANCELLED":"transfer cancelled","HASH_MISMATCH":"file hash mismatch","SIZE_MISMATCH":"file size mismatch","SIZE_LIMIT_EXCEEDED":"transfer size limit exceeded","URL_NOT_ALLOWED":"download URL is not allowed","REDIRECT_NOT_ALLOWED":"download redirect is not allowed","PATH_UNSAFE":"unsafe staging path","STAGING_CONFLICT":"staging directory already exists","DEPENDENCY_MISSING":"declared dependency is missing","DEPENDENCY_UNSUPPORTED":"dependency is unsupported"}
+    return {"code":code,"message":messages.get(code,"transfer failed"),"stage":getattr(exc,"stage",stage),"retryable":getattr(exc,"retryable",False)}
 class TransferManager:
-    def __init__(self): self.items={}; self.lock=threading.RLock(); self.importer=get_importer(); self.accepting=True; self.threads={}
+    def __init__(self): self.items={}; self.lock=threading.RLock(); self.import_lock=threading.Lock(); self.importer=get_importer(); self.accepting=True; self.threads={}
     def start_accepting(self):
         with self.lock: self.accepting=True
     def accept(self, manifest):
@@ -98,14 +99,20 @@ class TransferManager:
             for spec in ordered:
                 try: download_file(spec,root,item["cancel"],budget)
                 except Exception as exc:
-                    if spec["id"]==entry or str(exc)=="CANCELLED": raise
+                    target_format=item["manifest"]["target"]["format"]
+                    fatal=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE"))
+                    if spec["id"]==entry or target_format=="obj" or str(exc) in fatal: raise
                     warning=_safe_error(exc,"DEPENDENCY_MISSING","download")
                     with self.lock: item["warnings"].append({"code":warning["code"],"message":warning["message"],"fileId":spec["id"]})
+            if item["manifest"]["target"]["format"]=="obj": validate_obj_closure(root,item["manifest"])
             self.transition(tid,"verifying"); self.transition(tid,"queued")
             if item["cancel"].is_set(): return self.transition(tid,"cancelled")
             self.transition(tid,"importing_geometry")
-            import_result=execute(lambda: self.importer.import_transfer(item,root))
-            self._finish_import(tid,import_result)
+            with self.import_lock:
+                target_format=item["manifest"]["target"]["format"]; readiness=execute(lambda: self.importer.readiness(target_format))
+                if not readiness["ready"]: raise ValueError(readiness["reason"])
+                import_result=execute(lambda: self.importer.import_transfer(item,root))
+                self._finish_import(tid,import_result)
         except ValueError as exc:
             state=item["state"]
             if item["cancel"].is_set() and state=="cancel_pending":

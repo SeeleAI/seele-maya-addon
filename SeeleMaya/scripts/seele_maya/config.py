@@ -13,8 +13,22 @@ MAX_MANIFEST_TTL_SECONDS = 3600
 MAX_INFLIGHT_TRANSFERS = 8
 MAX_HTTP_THREADS = 16
 REQUEST_TIMEOUT_SECONDS = 10
-ALLOWED_ORIGINS = tuple(x.strip() for x in os.environ.get("SEELE_ALLOWED_ORIGINS", "").split(",") if x.strip())
-ALLOWED_DOWNLOAD_HOSTS = tuple(x.strip().lower() for x in os.environ.get("SEELE_ALLOWED_DOWNLOAD_HOSTS", "").split(",") if x.strip())
+DEFAULT_ALLOWED_ORIGINS = (
+    "https://code4agent-feature-maya-dcc-server-web.seele.chat",
+)
+_configured_origins = tuple(x.strip() for x in os.environ.get("SEELE_ALLOWED_ORIGINS", "").split(",") if x.strip())
+ALLOWED_ORIGINS = tuple(dict.fromkeys(DEFAULT_ALLOWED_ORIGINS + _configured_origins))
+DEFAULT_ALLOWED_DOWNLOAD_HOSTS = (
+    "static.seeles.ai",
+    "seele-asset-public-1.s3.ap-southeast-1.amazonaws.com",
+    "d3lzqljvieno0e.cloudfront.net",
+    "seelemedia.s3.us-east-1.amazonaws.com",
+    "seelemedia.s3.amazonaws.com",
+    "seeleh5.blob.core.windows.net",
+    "d3vhd1f81y5p6c.cloudfront.net",
+)
+_configured_download_hosts = tuple(x.strip().lower() for x in os.environ.get("SEELE_ALLOWED_DOWNLOAD_HOSTS", "").split(",") if x.strip())
+ALLOWED_DOWNLOAD_HOSTS = tuple(dict.fromkeys(DEFAULT_ALLOWED_DOWNLOAD_HOSTS + _configured_download_hosts))
 
 def data_dir():
     if platform.system() == "Windows":

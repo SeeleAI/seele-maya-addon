@@ -2,6 +2,7 @@ import json, os, sys, threading, unittest
 from http.client import HTTPConnection
 sys.path.insert(0,os.path.abspath('SeeleMaya/scripts'))
 import seele_maya.bridge.server as server
+from seele_maya.config import DEFAULT_ALLOWED_ORIGINS
 
 class TestHttp(unittest.TestCase):
     @classmethod
@@ -15,8 +16,12 @@ class TestHttp(unittest.TestCase):
         conn=HTTPConnection('127.0.0.1',self.httpd.server_port,timeout=3); conn.request('GET',path,headers={'Origin':origin}); response=conn.getresponse(); body=json.loads(response.read() or b'{}'); conn.close(); return response.status,body
     def test_health_mock_not_ready(self):
         status,body=self.request('/v1/health','https://app.test')
-        self.assertEqual(200,status); self.assertEqual([],body['data']['formats']); self.assertFalse(body['data']['capabilities']['importers']['fbx']['ready'])
+        self.assertEqual(200,status); self.assertEqual([],body['data']['formats']); self.assertFalse(body['data']['capabilities']['importers']['fbx']['ready']); self.assertIn('obj',body['data']['capabilities']['importers']); self.assertIn('abc',body['data']['capabilities']['importers'])
     def test_origin_rejected(self): self.assertEqual(403,self.request('/v1/health','https://evil.test')[0])
+    def test_feature_origin_is_default_exact_origin(self):
+        origin='https://code4agent-feature-maya-dcc-server-web.seele.chat'
+        self.assertIn(origin,DEFAULT_ALLOWED_ORIGINS)
+        self.assertNotIn(origin+'.evil.example',DEFAULT_ALLOWED_ORIGINS)
     def test_unknown_transfer(self): self.assertEqual(404,self.request('/v1/transfers/missing','https://app.test')[0])
     def test_receiver_lifecycle(self):
         old_port=server.PORT
