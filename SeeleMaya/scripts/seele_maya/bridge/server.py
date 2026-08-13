@@ -58,7 +58,7 @@ class Handler(BaseHTTPRequestHandler):
             token, exp=challenges.issue(RECEIVER_ID, origin)
             readiness=execute(manager.importer.readiness); formats=[name for name in FORMAT_SPECS if readiness[name]["ready"]]
             runtime=execute(manager.importer.runtime) if hasattr(manager.importer,"runtime") else {"version":None,"platform":None}
-            data={"service":"seele-dcc-receiver","dcc":"maya","version":__version__,"receiverId":RECEIVER_ID,"challenge":token,"challengeExpiresAt":exp,"protocols":[PROTOCOL_VERSION],"formats":formats,"capabilities":{"formats":formats,"supportsStatus":True,"supportsCancel":True,"supportsRetryImport":False,"importers":readiness},"maya":runtime}
+            data={"service":"seele-dcc-receiver","dcc":"maya","version":__version__,"readiness":"ready" if formats else "not_ready","receiverId":RECEIVER_ID,"challenge":token,"challengeExpiresAt":exp,"protocols":[PROTOCOL_VERSION],"formats":formats,"capabilities":{"formats":formats,"supportsStatus":True,"supportsCancel":True,"supportsRetryImport":False,"importers":readiness},"maya":runtime}
             self._send(200, envelope(data), origin)
         elif self.path.startswith("/v1/transfers/"):
             item=manager.get(self.path.rsplit('/',1)[-1])
