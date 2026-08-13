@@ -1,4 +1,5 @@
-import os, sys, threading, unittest, uuid
+import os, sys, tempfile, threading, unittest, uuid
+from unittest.mock import patch
 sys.path.insert(0, os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.bridge.challenge import ChallengeStore
 from seele_maya.transfer.manager import TransferManager
@@ -52,6 +53,25 @@ class TestManager(unittest.TestCase):
         self.assertEqual('DEPENDENCY_MISSING',error['code']); self.assertNotIn('local detail',error['message'])
     def test_arbitrary_exception_is_not_public_code(self):
         self.assertEqual('IMPORT_FAILED',_safe_error(RuntimeError('SOME_RANDOM_CODE'),'IMPORT_FAILED','import')['code'])
+    def test_cancel_rollback_failure_is_terminal_failed(self):
+        class Importer(object):
+            def rollback(self,result): raise RuntimeError('ROLLBACK_FAILED')
+        manager=TransferManager(); manager.importer=Importer(); tid=str(uuid.uuid4()); event=threading.Event(); event.set(); manager.items[tid]={"transferId":tid,"state":"cancel_pending","cancel":event,"warnings":[],"createdAt":"x","updatedAt":"x","manifest":{},"digest":"x"}
+        self.assertFalse(manager._rollback_cancelled_import(tid,{})); self.assertEqual('failed',manager.get(tid)['state']); self.assertEqual('ROLLBACK_FAILED',manager.get(tid)['error']['code'])
+    def test_success_cleans_staging(self):
+        class Importer(object):
+            def readiness(self,name,refresh=False): return {'ready':True,'reason':None}
+            def import_transfer(self,item,root): return {'group':'g','namespace':'n','nodesCreated':1,'createdUuids':(),'snapshot':{},'warnings':[]}
+            def rollback(self,result): return True
+        manager=TransferManager(); manager.importer=Importer(); tid=str(uuid.uuid4()); item={'transferId':tid,'state':'accepted','cancel':threading.Event(),'warnings':[],'createdAt':'x','updatedAt':'x','manifest':{'target':{'format':'fbx'},'entryFileId':'m','files':[{'id':'m'}]},'digest':'x'}; manager.items[tid]=item; cleaned=[]
+        with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies'), patch('seele_maya.transfer.manager.cleanup_staging',side_effect=lambda value: cleaned.append(value)):
+            manager._run(tid)
+        self.assertEqual('completed',manager.get(tid)['state']); self.assertEqual([root],cleaned)
+    def test_cancel_before_import_cleans_staging(self):
+        manager=TransferManager(); tid=str(uuid.uuid4()); event=threading.Event(); event.set(); item={'transferId':tid,'state':'accepted','cancel':event,'warnings':[],'createdAt':'x','updatedAt':'x','manifest':{'target':{'format':'fbx'},'entryFileId':'m','files':[{'id':'m'}]},'digest':'x'}; manager.items[tid]=item; cleaned=[]
+        with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies'), patch('seele_maya.transfer.manager.cleanup_staging',side_effect=lambda value: cleaned.append(value)):
+            manager._run(tid)
+        self.assertEqual('cancelled',manager.get(tid)['state']); self.assertEqual([root],cleaned)
     def test_conflict(self):
         manager=TransferManager(); manager._run=lambda tid: None
         tid=str(uuid.uuid4()); base={'transferId':tid,'displayName':'a','files':[]}

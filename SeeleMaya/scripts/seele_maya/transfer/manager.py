@@ -6,14 +6,15 @@ from .downloader import download_file, ByteBudget
 from ..config import MAX_TOTAL_BYTES, MAX_INFLIGHT_TRANSFERS
 from ..maya_api.importer import get_importer
 from ..maya_api.main_thread import execute
-from ..contract.dependencies import validate_obj_closure
+from ..contract.dependencies import validate_dependencies
+from ..formats import format_spec
 
 TRANSITIONS={"accepted":("downloading","cancelled","failed"),"downloading":("verifying","cancelled","failed"),"verifying":("queued","cancelled","failed"),"queued":("importing_geometry","cancelled","failed"),"importing_geometry":("organizing_scene","cancel_pending","failed"),"organizing_scene":("completed","completed_with_warnings","cancel_pending","failed"),"cancel_pending":("rollback","failed"),"rollback":("cancelled","failed")}
 TERMINAL=set(("completed", "completed_with_warnings", "failed", "cancelled"))
 PUBLIC_STATES=set(("accepted","downloading","verifying","queued","importing_geometry","organizing_scene","cancel_pending","completed","completed_with_warnings","failed","cancelled"))
 def _now(): return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
 def _safe_error(exc, default, stage):
-    stable=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE","STAGING_CONFLICT","DEPENDENCY_MISSING","DEPENDENCY_UNSUPPORTED","FBX_PLUGIN_UNAVAILABLE","FBX_TRANSLATOR_UNAVAILABLE","OBJ_TRANSLATOR_UNAVAILABLE","ABC_PLUGIN_UNAVAILABLE","ABC_COMMAND_UNAVAILABLE","DAE_PLUGIN_UNAVAILABLE","DAE_TRANSLATOR_UNAVAILABLE","USD_PLUGIN_UNAVAILABLE","USDA_PLUGIN_UNAVAILABLE","USDC_PLUGIN_UNAVAILABLE","IMPORT_CREATED_NO_NODES","ROLLBACK_INCOMPLETE","ROLLBACK_FAILED","SERVER_BUSY","TOO_MANY_TRANSFERS","RECEIVER_STOPPING"))
+    stable=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE","STAGING_CONFLICT","STAGING_CLEANUP_FAILED","DEPENDENCY_MISSING","DEPENDENCY_UNSUPPORTED","FBX_PLUGIN_UNAVAILABLE","FBX_TRANSLATOR_UNAVAILABLE","OBJ_TRANSLATOR_UNAVAILABLE","ABC_PLUGIN_UNAVAILABLE","ABC_COMMAND_UNAVAILABLE","DAE_PLUGIN_UNAVAILABLE","DAE_TRANSLATOR_UNAVAILABLE","USD_PLUGIN_UNAVAILABLE","USDA_PLUGIN_UNAVAILABLE","USDC_PLUGIN_UNAVAILABLE","IMPORT_CREATED_NO_NODES","ROLLBACK_INCOMPLETE","ROLLBACK_FAILED","SERVER_BUSY","TOO_MANY_TRANSFERS","RECEIVER_STOPPING"))
     candidate=getattr(exc,"code",None) or str(exc); code=candidate if candidate in stable else default
     messages={"CANCELLED":"transfer cancelled","HASH_MISMATCH":"file hash mismatch","SIZE_MISMATCH":"file size mismatch","SIZE_LIMIT_EXCEEDED":"transfer size limit exceeded","URL_NOT_ALLOWED":"download URL is not allowed","REDIRECT_NOT_ALLOWED":"download redirect is not allowed","PATH_UNSAFE":"unsafe staging path","STAGING_CONFLICT":"staging directory already exists","DEPENDENCY_MISSING":"declared dependency is missing","DEPENDENCY_UNSUPPORTED":"dependency is unsupported"}
     return {"code":code,"message":messages.get(code,"transfer failed"),"stage":getattr(exc,"stage",stage),"retryable":getattr(exc,"retryable",False)}
@@ -73,9 +74,15 @@ class TransferManager:
             if item["state"] not in ("cancel_pending","rollback"):
                 self.transition(tid,"cancel_pending")
             if item["state"]=="cancel_pending": self.transition(tid,"rollback")
-        execute(lambda: self.importer.rollback(import_result))
+        try: execute(lambda: self.importer.rollback(import_result))
+        except Exception as exc:
+            with self.lock:
+                if self.items[tid]["state"]=="rollback": self.transition(tid,"failed")
+                self.items[tid]["error"]=_safe_error(exc,"ROLLBACK_FAILED","rollback")
+            return False
         with self.lock:
             if self.items[tid]["state"]=="rollback": self.transition(tid,"cancelled")
+        return True
     def _finish_import(self, tid, import_result):
         item=self.items[tid]
         public_result={k:v for k,v in import_result.items() if k in ("group","namespace","nodesCreated","warnings")}
@@ -90,7 +97,7 @@ class TransferManager:
             if not cancelled: self.transition(tid,"completed_with_warnings" if item["warnings"] else "completed")
         if cancelled: self._rollback_cancelled_import(tid,import_result)
     def _run(self, tid):
-        item=self.items[tid]; root=None
+        item=self.items[tid]; root=None; cleanup=False
         try:
             root=staging_root(tid)
             self.transition(tid,"downloading")
@@ -101,18 +108,19 @@ class TransferManager:
                 except Exception as exc:
                     target_format=item["manifest"]["target"]["format"]
                     fatal=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE"))
-                    if spec["id"]==entry or target_format=="obj" or str(exc) in fatal: raise
+                    if spec["id"]==entry or format_spec(target_format).get("dependency_fail_closed",True) or str(exc) in fatal: raise
                     warning=_safe_error(exc,"DEPENDENCY_MISSING","download")
                     with self.lock: item["warnings"].append({"code":warning["code"],"message":warning["message"],"fileId":spec["id"]})
-            if item["manifest"]["target"]["format"]=="obj": validate_obj_closure(root,item["manifest"])
+            validate_dependencies(root,item["manifest"])
             self.transition(tid,"verifying"); self.transition(tid,"queued")
             if item["cancel"].is_set(): return self.transition(tid,"cancelled")
             self.transition(tid,"importing_geometry")
             with self.import_lock:
-                target_format=item["manifest"]["target"]["format"]; readiness=execute(lambda: self.importer.readiness(target_format))
+                target_format=item["manifest"]["target"]["format"]; readiness=execute(lambda: self.importer.readiness(target_format,refresh=True))
                 if not readiness["ready"]: raise ValueError(readiness["reason"])
                 import_result=execute(lambda: self.importer.import_transfer(item,root))
                 self._finish_import(tid,import_result)
+                cleanup=item["state"] in TERMINAL
         except ValueError as exc:
             state=item["state"]
             if item["cancel"].is_set() and state=="cancel_pending":
@@ -123,18 +131,22 @@ class TransferManager:
             else:
                 target="cancelled" if str(exc)=="CANCELLED" else "failed"; self.transition(tid,target)
             with self.lock: item["error"]=_safe_error(exc,"DOWNLOAD_FAILED","download")
-            if root:
-                try: cleanup_staging(root)
-                except Exception: pass
+            cleanup=True
         except Exception as exc:
+            rollback_error=None
             try:
                 if 'import_result' in locals(): execute(lambda: self.importer.rollback(import_result))
-            except Exception: pass
+            except Exception as rollback_exc: rollback_error=rollback_exc
             if item["state"] not in TERMINAL: self.transition(tid,"failed")
-            with self.lock: item["error"]=_safe_error(exc,"IMPORT_FAILED","import")
-            if root:
-                try: cleanup_staging(root)
-                except Exception: pass
+            with self.lock: item["error"]=_safe_error(rollback_error,"ROLLBACK_FAILED","rollback") if rollback_error else _safe_error(exc,"IMPORT_FAILED","import")
+            cleanup=True
         finally:
+            if root and (cleanup or item["state"] in TERMINAL):
+                try: cleanup_staging(root)
+                except Exception as cleanup_exc:
+                    with self.lock:
+                        if item["state"] not in ("failed",):
+                            if item["state"] in ("completed","completed_with_warnings","cancelled"): item["state"]="failed"; item["updatedAt"]=_now()
+                        item["error"]=_safe_error(cleanup_exc,"STAGING_CLEANUP_FAILED","cleanup")
             with self.lock:
                 self.threads.pop(tid,None); item.pop("importResult",None)

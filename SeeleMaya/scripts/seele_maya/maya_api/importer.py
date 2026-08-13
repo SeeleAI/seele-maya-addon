@@ -1,9 +1,12 @@
 import os
 import platform
 from ..formats import FORMAT_SPECS, format_spec
+from .. import __version__
+from .readiness import ReadinessProbe
+from . import snapshot
 
 class MockImporter(object):
-    def readiness(self,format_name=None):
+    def readiness(self,format_name=None,refresh=False):
         if format_name: return {"ready":False,"provider":format_spec(format_name)["provider"],"reason":"MAYA_UNAVAILABLE"}
         return {name:self.readiness(name) for name in FORMAT_SPECS}
     def import_transfer(self, item, root):
@@ -20,41 +23,40 @@ def get_importer():
         return MockImporter()
 
 class MayaImporter(object):
-    def __init__(self, cmds): self.cmds=cmds
-    def readiness(self,format_name=None):
-        if format_name is None: return {name:self.readiness(name) for name in FORMAT_SPECS}
-        spec=format_spec(format_name); reason=format_name.upper()+"_IMPORTER_UNAVAILABLE"
-        try:
-            for plugin in spec.get("plugins",()):
-                if not self.cmds.pluginInfo(plugin,query=True,loaded=True): self.cmds.loadPlugin(plugin,quiet=True)
-                if not self.cmds.pluginInfo(plugin,query=True,loaded=True): return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_PLUGIN_UNAVAILABLE"}
-            if spec.get("import_surface_verified") is False:
-                return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_IMPORT_SURFACE_UNAVAILABLE"}
-            translators=set(self.cmds.translator(query=True,list=True) or [])
-            for translator in spec.get("translators",()):
-                if translator not in translators: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_TRANSLATOR_UNAVAILABLE"}
-            for command in spec.get("commands",()):
-                if not hasattr(self.cmds,command): return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_COMMAND_UNAVAILABLE"}
-            result={"ready":True,"provider":spec["provider"],"reason":None}
-            if spec.get("translators"): result["translator"]=spec["translators"][0]
-            if spec.get("commands"): result["command"]=spec["commands"][0]
-            return result
-        except Exception:
-            return {"ready":False,"provider":spec["provider"],"reason":reason}
+    def __init__(self, cmds): self.cmds=cmds; self.probe=ReadinessProbe(cmds)
+    def readiness(self,format_name=None,refresh=False):
+        return self.probe.probe(format_name,refresh=refresh) if format_name else self.probe.all(refresh=refresh)
     def runtime(self): return {"version":str(self.cmds.about(version=True)),"platform":platform.system().lower()}
+    def _invoke_import(self,path,format_name,namespace,before):
+        spec=format_spec(format_name); handler=spec["handler"]
+        if handler=="abc":
+            self.cmds.namespace(setNamespace=namespace); self.cmds.AbcImport(path,mode="import")
+            return list(snapshot.diff(self.cmds,before)["createdNodes"])
+        if handler=="file":
+            return self.cmds.file(path,i=True,type=spec["translators"][0],namespace=namespace,returnNewNodes=True,mergeNamespacesOnClash=False,executeScriptNodes=False) or []
+        raise RuntimeError("IMPORT_SURFACE_UNAVAILABLE")
+    def _restore_or_rollback(self,before,namespace):
+        try:
+            snapshot.restore_environment(self.cmds,before)
+        except Exception:
+            delta=snapshot.diff(self.cmds,before)
+            try:
+                self.rollback({"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"namespace":namespace})
+            except snapshot.RollbackError:
+                raise
+            except Exception:
+                raise snapshot.RollbackError("ROLLBACK_FAILED")
+            raise
     def import_transfer(self, item, root):
         manifest=item["manifest"]
-        format_name=manifest["target"]["format"]; ready=self.readiness(format_name)
+        format_name=manifest["target"]["format"]; ready=self.readiness(format_name,refresh=True)
         if not ready["ready"]: raise RuntimeError(ready["reason"])
         model=next(f for f in manifest["files"] if f["id"]==manifest["entryFileId"])
         path=os.path.abspath(os.path.join(root,"files",model["path"]))
-        ns="seele_"+item["transferId"].replace("-","")[:8]; old_selection=self.cmds.ls(selection=True,long=True) or []; old_ns=self.cmds.namespaceInfo(currentNamespace=True); nodes=[]; group=None
+        ns="seele_"+item["transferId"].replace("-","")[:8]; before=snapshot.capture(self.cmds); nodes=[]; group=None
         try:
-            if format_name=="abc":
-                before=set(self.cmds.ls(long=True) or []); self.cmds.AbcImport(path,mode="import"); nodes=list(set(self.cmds.ls(long=True) or [])-before)
-            else:
-                translator=format_spec(format_name)["translators"][0]
-                nodes=self.cmds.file(path,i=True,type=translator,namespace=ns,returnNewNodes=True,mergeNamespacesOnClash=False,executeScriptNodes=False) or []
+            if not self.cmds.namespace(exists=ns): self.cmds.namespace(add=ns)
+            nodes=self._invoke_import(path,format_name,ns,before)
             if not nodes: raise RuntimeError("IMPORT_CREATED_NO_NODES")
             node_set=set(nodes); tops=[]
             for node in nodes:
@@ -64,25 +66,14 @@ class MayaImporter(object):
             safe="".join(c if c.isalnum() or c=="_" else "_" for c in (manifest.get("displayName") or "asset"))
             group=self.cmds.group(empty=True, name="SEELE_"+safe)
             for node in tops: self.cmds.parent(node,group)
-            for name,value in (("seeleTransferId",item["transferId"]),("seeleReceiverVersion","0.2.0"),("seeleCanvasId",manifest.get("canvasId", "")),("seeleSourceFormat",format_name)):
+            for name,value in (("seeleTransferId",item["transferId"]),("seeleReceiverVersion",__version__),("seeleCanvasId",manifest.get("canvasId", "")),("seeleSourceFormat",format_name)):
                 self.cmds.addAttr(group,longName=name,dataType="string"); self.cmds.setAttr(group+"."+name,value,type="string")
-            return {"group":group,"namespace":ns,"nodesCreated":len(nodes),"createdNodes":list(nodes)+[group],"warnings":[]}
+            delta=snapshot.diff(self.cmds,before)
+            return {"group":group,"namespace":ns,"nodesCreated":len(delta["createdUuids"]),"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"warnings":[]}
         except Exception:
-            created=list(nodes)
-            if group: created.append(group)
-            self.rollback({"createdNodes":created,"namespace":ns})
+            delta=snapshot.diff(self.cmds,before); self.rollback({"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"namespace":ns})
             raise
         finally:
-            try: self.cmds.namespace(setNamespace=old_ns)
-            except Exception: pass
-            try: self.cmds.select(old_selection,replace=True) if old_selection else self.cmds.select(clear=True)
-            except Exception: pass
+            self._restore_or_rollback(before,ns)
     def rollback(self,result):
-        nodes=result.get("createdNodes",[]) if result else []
-        existing=[n for n in reversed(nodes) if self.cmds.objExists(n)]
-        if existing: self.cmds.delete(existing)
-        ns=result.get("namespace") if result else None
-        if ns and self.cmds.namespace(exists=ns):
-            try: self.cmds.namespace(removeNamespace=ns)
-            except Exception: pass
-        return True
+        return snapshot.rollback(self.cmds,result)

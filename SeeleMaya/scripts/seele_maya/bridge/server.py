@@ -7,6 +7,7 @@ from ..transfer.manager import TransferManager
 from ..maya_api.main_thread import execute
 from ..config import MAX_HTTP_THREADS, REQUEST_TIMEOUT_SECONDS
 from ..formats import FORMAT_SPECS
+from .. import PROTOCOL_VERSION, __version__
 
 RECEIVER_ID=receiver_id(); challenges=ChallengeStore(); manager=TransferManager()
 _server=None; _thread=None; _lock=threading.RLock(); _status={"running":False,"error":None}
@@ -50,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
             token, exp=challenges.issue(RECEIVER_ID, origin)
             readiness=execute(manager.importer.readiness); formats=[name for name in FORMAT_SPECS if readiness[name]["ready"]]
             runtime=execute(manager.importer.runtime) if hasattr(manager.importer,"runtime") else {"version":None,"platform":None}
-            data={"service":"seele-dcc-receiver","dcc":"maya","version":"0.2.0","receiverId":RECEIVER_ID,"challenge":token,"challengeExpiresAt":exp,"protocols":["dcc-transfer.v1"],"formats":formats,"capabilities":{"formats":formats,"supportsStatus":True,"supportsCancel":True,"supportsRetryImport":False,"importers":readiness},"maya":runtime}
+            data={"service":"seele-dcc-receiver","dcc":"maya","version":__version__,"receiverId":RECEIVER_ID,"challenge":token,"challengeExpiresAt":exp,"protocols":[PROTOCOL_VERSION],"formats":formats,"capabilities":{"formats":formats,"supportsStatus":True,"supportsCancel":True,"supportsRetryImport":False,"importers":readiness},"maya":runtime}
             self._send(200, envelope(data), origin)
         elif self.path.startswith("/v1/transfers/"):
             item=manager.get(self.path.rsplit('/',1)[-1])
@@ -71,13 +72,13 @@ class Handler(BaseHTTPRequestHandler):
         except Exception: return self._send(400,envelope(error={"code":"INVALID_JSON","message":"invalid JSON","retryable":False,"stage":"validation"}),origin)
         if self.path=="/v1/transfers":
             try:
-                if not isinstance(body,dict) or body.get("version")!="dcc-transfer.v1": raise ContractError("UNSUPPORTED_PROTOCOL","envelope version is unsupported")
+                if not isinstance(body,dict) or body.get("version")!=PROTOCOL_VERSION: raise ContractError("UNSUPPORTED_PROTOCOL","envelope version is unsupported")
                 if body.get("receiverId")!=RECEIVER_ID: raise ContractError("RECEIVER_MISMATCH","receiver mismatch")
                 err=challenges.consume(body.get("challenge"),RECEIVER_ID,origin)
                 if err: raise ContractError(err,err)
                 validate_manifest(body.get("manifest"),RECEIVER_ID)
                 target_format=body["manifest"]["target"]["format"]
-                readiness=execute(lambda: manager.importer.readiness(target_format))
+                readiness=execute(lambda: manager.importer.readiness(target_format,refresh=True))
                 if not readiness["ready"]: raise ContractError(readiness["reason"] or target_format.upper()+"_IMPORTER_UNAVAILABLE",target_format.upper()+" importer is unavailable","readiness")
                 item=manager.accept(body["manifest"]); self._send(202,envelope({"transferId":item["transferId"],"state":item["state"],"createdAt":item["createdAt"],"updatedAt":item["updatedAt"]}),origin)
             except (ContractError,ValueError) as e:

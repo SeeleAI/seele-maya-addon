@@ -1,10 +1,10 @@
 """Single source of truth for accepted Maya transfer formats."""
 FORMAT_SPECS = {
-    "fbx":{"phase":"P0","provider":"fbxmaya","plugins":("fbxmaya",),"translators":("FBX",),"policy":"optional_textures","extension":".fbx"},
-    "obj":{"phase":"P0","provider":"maya_obj_translator","plugins":(),"translators":("OBJ",),"policy":"obj_mtl_textures","extension":".obj"},
-    "abc":{"phase":"P0","provider":"AbcImport","plugins":("AbcImport",),"commands":("AbcImport",),"policy":"none","extension":".abc"},
-    "dae":{"phase":"P1","provider":"DAE_FBX","plugins":("fbxmaya",),"translators":("DAE_FBX",),"policy":"none","extension":".dae"},
-    "usd":{"phase":"P1","provider":"mayaUsdPlugin","plugins":("mayaUsdPlugin",),"policy":"none","extension":".usd","import_surface_verified":False},
+    "fbx":{"phase":"P0","provider":"fbxmaya","plugins":("fbxmaya",),"translators":("FBX",),"handler":"file","policy":"optional_textures","dependency_fail_closed":False,"extension":".fbx","dependencies":{"TEXTURE":("png","jpg","jpeg","tga","tif","tiff","exr","bmp")}},
+    "obj":{"phase":"P0","provider":"maya_obj_translator","plugins":(),"translators":("OBJ",),"handler":"file","dependency_validator":"obj","policy":"obj_mtl_textures","dependency_fail_closed":True,"extension":".obj","dependencies":{"AUXILIARY":("mtl",),"TEXTURE":("png","jpg","jpeg","tga","tif","tiff","exr","bmp")}},
+    "abc":{"phase":"P0","provider":"AbcImport","plugins":("AbcImport",),"commands":("AbcImport",),"handler":"abc","policy":"none","extension":".abc","dependencies":{}},
+    "dae":{"phase":"P1","provider":"DAE_FBX","plugins":("fbxmaya",),"translators":("DAE_FBX",),"handler":"file","policy":"none","extension":".dae","dependencies":{}},
+    "usd":{"phase":"P1","provider":"mayaUsdPlugin","plugins":("mayaUsdPlugin",),"handler":None,"policy":"none","extension":".usd","dependencies":{},"import_surface_verified":False},
     "usda":{"alias_of":"usd","extension":".usda"},
     "usdc":{"alias_of":"usd","extension":".usdc"},
 }
@@ -39,7 +39,7 @@ def validate_registry():
     extensions=set()
     for name in FORMAT_SPECS:
         spec=format_spec(name); extension=spec.get("extension")
-        if not extension or extension in extensions: raise ValueError("FORMAT_REGISTRY_INVALID")
+        if not extension or extension in extensions or "policy" not in spec or "dependencies" not in spec or "handler" not in spec: raise ValueError("FORMAT_REGISTRY_INVALID")
         extensions.add(extension)
     return True
 

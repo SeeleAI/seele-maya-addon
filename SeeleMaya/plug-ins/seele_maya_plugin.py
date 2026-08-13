@@ -1,8 +1,10 @@
 """Maya plug-in entry point and receiver lifecycle."""
 try:
     import maya.api.OpenMaya as om
+    from seele_maya import __version__
 except ImportError:
     om = None
+    __version__ = "0.2.0"
 
 def maya_useNewAPI():
     """Tell Maya to pass API 2.0 objects to the plug-in entry points."""
@@ -17,7 +19,7 @@ def _creator(): return SeeleMayaStatus()
 
 def initializePlugin(plugin):
     if om:
-        fn = om.MFnPlugin(plugin, "SEELE", "0.2.0", "Any")
+        fn = om.MFnPlugin(plugin, "SEELE", __version__, "Any")
         fn.registerCommand("seeleMayaStatus",_creator)
     from seele_maya.bridge.server import start
     start()

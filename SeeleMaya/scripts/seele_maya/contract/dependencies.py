@@ -1,5 +1,6 @@
 import os, re, shlex
 from .validator import ContractError, _validate_path
+from ..formats import format_spec
 
 MAX_TEXT_BYTES=16*1024*1024
 MAX_LINES=200000
@@ -49,3 +50,9 @@ def validate_obj_closure(root,manifest):
         spec=by_path.get(rel)
         if not spec or spec.get("kind")!="TEXTURE": raise ContractError("DEPENDENCY_MISSING","OBJ texture dependency is missing")
     return {"materials":mtls,"textures":textures}
+
+def validate_dependencies(root,manifest):
+    validator=format_spec(manifest["target"]["format"]).get("dependency_validator")
+    if validator is None: return {}
+    if validator=="obj": return validate_obj_closure(root,manifest)
+    raise ContractError("DEPENDENCY_UNSUPPORTED","dependency validator is unavailable")

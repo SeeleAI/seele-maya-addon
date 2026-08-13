@@ -20,3 +20,10 @@ class TestContract(unittest.TestCase):
  def test_timestamp_must_be_strict_rfc3339(self):
   now=datetime.now(timezone.utc); m={'version':'dcc-transfer.v1','transferId':str(uuid.uuid4()),'receiverId':'r','target':{'dcc':'maya','format':'fbx'},'entryFileId':'m','createdAt':now.strftime('%Y-%m-%d %H:%M:%S+00:00'),'expiresAt':(now+timedelta(minutes=10)).isoformat(),'files':[{'id':'m','kind':'MODEL','format':'fbx','contentType':'application/octet-stream','path':'a.fbx','downloadUrl':'https://static.seeles.ai/a.fbx','sizeBytes':0,'sha256':'0'*64}]}
   with self.assertRaises(ContractError): validate_manifest(m,'r')
+ def test_asset_id_and_exact_target(self):
+  now=datetime.now(timezone.utc); m={'version':'dcc-transfer.v1','transferId':str(uuid.uuid4()),'receiverId':'r','assetId':'asset-1','target':{'dcc':'maya','format':'fbx'},'entryFileId':'m','createdAt':now.isoformat(),'expiresAt':(now+timedelta(minutes=10)).isoformat(),'files':[{'id':'m','kind':'MODEL','format':'fbx','contentType':'application/octet-stream','path':'a.fbx','downloadUrl':'https://static.seeles.ai/a.fbx','sizeBytes':0,'sha256':'0'*64}]}
+  self.assertTrue(validate_manifest(m,'r')); m['target']['extra']=True
+  with self.assertRaises(ContractError): validate_manifest(m,'r')
+ def test_future_created_at_rejected(self):
+  now=datetime.now(timezone.utc); future=now+timedelta(minutes=10); m={'version':'dcc-transfer.v1','transferId':str(uuid.uuid4()),'receiverId':'r','target':{'dcc':'maya','format':'fbx'},'entryFileId':'m','createdAt':future.isoformat(),'expiresAt':(future+timedelta(minutes=10)).isoformat(),'files':[{'id':'m','kind':'MODEL','format':'fbx','contentType':'application/octet-stream','path':'a.fbx','downloadUrl':'https://static.seeles.ai/a.fbx','sizeBytes':0,'sha256':'0'*64}]}
+  with self.assertRaises(ContractError): validate_manifest(m,'r',now=now)
