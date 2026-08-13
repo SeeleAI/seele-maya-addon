@@ -7,6 +7,7 @@ from ..config import MAX_TOTAL_BYTES, MAX_INFLIGHT_TRANSFERS
 from ..maya_api.importer import get_importer
 from ..maya_api.main_thread import execute
 from ..contract.dependencies import validate_dependencies
+from ..contract.validator import ContractError
 from ..formats import format_spec
 
 TRANSITIONS={"accepted":("downloading","cancelled","failed"),"downloading":("verifying","cancelled","failed"),"verifying":("queued","cancelled","failed"),"queued":("importing_geometry","cancelled","failed"),"importing_geometry":("organizing_scene","cancel_pending","failed"),"organizing_scene":("completed","completed_with_warnings","cancel_pending","failed"),"cancel_pending":("rollback","failed"),"rollback":("cancelled","failed")}
@@ -18,6 +19,16 @@ def _safe_error(exc, default, stage):
     candidate=getattr(exc,"code",None) or str(exc); code=candidate if candidate in stable else default
     messages={"CANCELLED":"transfer cancelled","HASH_MISMATCH":"file hash mismatch","SIZE_MISMATCH":"file size mismatch","SIZE_LIMIT_EXCEEDED":"transfer size limit exceeded","URL_NOT_ALLOWED":"download URL is not allowed","REDIRECT_NOT_ALLOWED":"download redirect is not allowed","PATH_UNSAFE":"unsafe staging path","STAGING_CONFLICT":"staging directory already exists","DEPENDENCY_MISSING":"declared dependency is missing","DEPENDENCY_UNSUPPORTED":"dependency is unsupported"}
     return {"code":code,"message":messages.get(code,"transfer failed"),"stage":getattr(exc,"stage",stage),"retryable":getattr(exc,"retryable",False)}
+def _with_rollback_detail(error, exc):
+    rollback_error=getattr(exc,"rollback_error",None)
+    if rollback_error is not None:
+        error["rollback"]=_safe_error(rollback_error,"ROLLBACK_FAILED","rollback")
+    return error
+def _append_warnings(item, warnings):
+    seen=set((warning.get("code"),warning.get("path"),warning.get("fileId")) for warning in item["warnings"])
+    for warning in warnings:
+        key=(warning.get("code"),warning.get("path"),warning.get("fileId"))
+        if key not in seen: item["warnings"].append(warning); seen.add(key)
 class TransferManager:
     def __init__(self): self.items={}; self.lock=threading.RLock(); self.import_lock=threading.Lock(); self.importer=get_importer(); self.accepting=True; self.threads={}
     def start_accepting(self):
@@ -109,15 +120,17 @@ class TransferManager:
                     target_format=item["manifest"]["target"]["format"]
                     fatal=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","PATH_UNSAFE"))
                     if spec["id"]==entry or format_spec(target_format).get("dependency_fail_closed",True) or str(exc) in fatal: raise
+                    if target_format=="obj" and spec.get("kind")=="AUXILIARY" and spec.get("format")=="mtl": continue
                     warning=_safe_error(exc,"DEPENDENCY_MISSING","download")
                     with self.lock: item["warnings"].append({"code":warning["code"],"message":warning["message"],"fileId":spec["id"]})
-            validate_dependencies(root,item["manifest"])
+            dependency_result=validate_dependencies(root,item["manifest"])
+            with self.lock: _append_warnings(item,dependency_result.get("warnings",()))
             self.transition(tid,"verifying"); self.transition(tid,"queued")
             if item["cancel"].is_set(): return self.transition(tid,"cancelled")
             self.transition(tid,"importing_geometry")
             with self.import_lock:
                 target_format=item["manifest"]["target"]["format"]; readiness=execute(lambda: self.importer.readiness(target_format,refresh=True))
-                if not readiness["ready"]: raise ValueError(readiness["reason"])
+                if not readiness["ready"]: raise ContractError(readiness["reason"] or "FORMAT_NOT_READY","format is not ready","readiness")
                 import_result=execute(lambda: self.importer.import_transfer(item,root))
                 self._finish_import(tid,import_result)
                 cleanup=item["state"] in TERMINAL
@@ -138,7 +151,10 @@ class TransferManager:
                 if 'import_result' in locals(): execute(lambda: self.importer.rollback(import_result))
             except Exception as rollback_exc: rollback_error=rollback_exc
             if item["state"] not in TERMINAL: self.transition(tid,"failed")
-            with self.lock: item["error"]=_safe_error(rollback_error,"ROLLBACK_FAILED","rollback") if rollback_error else _safe_error(exc,"IMPORT_FAILED","import")
+            with self.lock:
+                error=_safe_error(exc,"IMPORT_FAILED","import")
+                if rollback_error is not None: setattr(exc,"rollback_error",rollback_error)
+                item["error"]=_with_rollback_detail(error,exc)
             cleanup=True
         finally:
             if root and (cleanup or item["state"] in TERMINAL):

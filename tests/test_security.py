@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0,os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.contract.validator import _validate_path, ContractError
 from seele_maya.transfer.downloader import ByteBudget
-from seele_maya.transfer.staging import safe_path
+from seele_maya.transfer.staging import safe_path, _assert_no_links
 
 class TestPaths(unittest.TestCase):
     def test_windows_paths(self):
@@ -19,6 +19,12 @@ class TestPaths(unittest.TestCase):
             try: os.symlink(outside,link,target_is_directory=True)
             except (OSError,NotImplementedError): self.skipTest('symlink creation is unavailable')
             with self.assertRaises(ValueError): safe_path(root,'linked/a.fbx')
+    def test_trusted_boundary_does_not_inspect_system_ancestors(self):
+        with tempfile.TemporaryDirectory() as root:
+            child=os.path.join(root,'staging'); os.mkdir(child)
+            # A platform alias such as macOS /var -> /private/var is outside the
+            # trusted data root and must not make a safe staging child fail.
+            _assert_no_links(child,root)
 
 class TestBudget(unittest.TestCase):
     def test_transfer_total(self):

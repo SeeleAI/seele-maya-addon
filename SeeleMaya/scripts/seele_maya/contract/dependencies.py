@@ -26,7 +26,7 @@ def _tokens(line):
     except ValueError: raise ContractError("DEPENDENCY_UNSUPPORTED","dependency syntax is invalid")
 
 def validate_obj_closure(root,manifest):
-    by_path={f["path"]:f for f in manifest["files"]}; entry=next(f for f in manifest["files"] if f["id"]==manifest["entryFileId"]); obj_path=os.path.join(root,"files",*entry["path"].split("/")); mtls=[]; textures=[]
+    by_path={f["path"]:f for f in manifest["files"]}; entry=next(f for f in manifest["files"] if f["id"]==manifest["entryFileId"]); obj_path=os.path.join(root,"files",*entry["path"].split("/")); mtls=[]; textures=[]; warnings=[]
     for line in _lines(obj_path):
         if not line or line.startswith("#"): continue
         parts=_tokens(line)
@@ -35,8 +35,12 @@ def validate_obj_closure(root,manifest):
     if len(mtls)>32: raise ContractError("DEPENDENCY_UNSUPPORTED","too many OBJ material libraries")
     for rel in mtls:
         spec=by_path.get(rel)
-        if not spec or spec.get("kind")!="AUXILIARY" or spec.get("format")!="mtl": raise ContractError("DEPENDENCY_MISSING","OBJ material dependency is missing")
+        if not spec:
+            warnings.append({"code":"OBJ_MTL_NOT_PROVIDED","message":"OBJ material library was not provided","path":rel}); continue
+        if spec.get("kind")!="AUXILIARY" or spec.get("format")!="mtl": raise ContractError("DEPENDENCY_UNSUPPORTED","OBJ material dependency is invalid")
         path=os.path.join(root,"files",*rel.split("/"))
+        if not os.path.isfile(path):
+            warnings.append({"code":"OBJ_MTL_NOT_PROVIDED","message":"OBJ material library was not provided","path":rel,"fileId":spec["id"]}); continue
         for line in _lines(path):
             if not line or line.startswith("#"): continue
             parts=_tokens(line)
@@ -49,7 +53,7 @@ def validate_obj_closure(root,manifest):
     for rel in textures:
         spec=by_path.get(rel)
         if not spec or spec.get("kind")!="TEXTURE": raise ContractError("DEPENDENCY_MISSING","OBJ texture dependency is missing")
-    return {"materials":mtls,"textures":textures}
+    return {"materials":mtls,"textures":textures,"warnings":warnings}
 
 def validate_dependencies(root,manifest):
     validator=format_spec(manifest["target"]["format"]).get("dependency_validator")

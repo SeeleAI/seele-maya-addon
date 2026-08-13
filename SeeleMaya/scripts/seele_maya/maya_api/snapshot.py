@@ -24,6 +24,12 @@ def capture(cmds):
     except Exception: references=set()
     try: plugins=set(cmds.pluginInfo(query=True,listPlugins=True) or [])
     except Exception: plugins=set()
+    try: render_layer=cmds.editRenderLayerGlobals(query=True,currentRenderLayer=True)
+    except Exception: render_layer=None
+    try: current_tool=cmds.currentCtx()
+    except Exception: current_tool=None
+    try: scene_modified=bool(cmds.file(query=True,modified=True))
+    except Exception: scene_modified=None
     return {
         "nodes":_node_uuid_map(cmds),
         "selection":cmds.ls(selection=True,long=True) or [],
@@ -31,6 +37,9 @@ def capture(cmds):
         "namespaces":namespaces,
         "references":references,
         "plugins":plugins,
+        "renderLayer":render_layer,
+        "currentTool":current_tool,
+        "sceneModified":scene_modified,
         "time":cmds.currentTime(query=True),
         "playback":playback,
         "linearUnit":cmds.currentUnit(query=True,linear=True),
@@ -53,6 +62,9 @@ def restore_environment(cmds,before):
     if cmds.currentUnit(query=True,linear=True)!=before["linearUnit"]: cmds.currentUnit(linear=before["linearUnit"])
     if cmds.currentUnit(query=True,time=True)!=before["timeUnit"]: cmds.currentUnit(time=before["timeUnit"])
     if cmds.upAxis(query=True,axis=True)!=before["upAxis"]: cmds.upAxis(axis=before["upAxis"],updateView=False)
+    if before.get("renderLayer") is not None: cmds.editRenderLayerGlobals(currentRenderLayer=before["renderLayer"])
+    if before.get("currentTool") is not None: cmds.setToolTo(before["currentTool"])
+    if before.get("sceneModified") is not None: cmds.file(modified=before["sceneModified"])
     existing=[node for node in before["selection"] if cmds.objExists(node)]
     cmds.select(existing,replace=True) if existing else cmds.select(clear=True)
 

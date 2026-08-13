@@ -53,6 +53,20 @@ class TestManager(unittest.TestCase):
         self.assertEqual('DEPENDENCY_MISSING',error['code']); self.assertNotIn('local detail',error['message'])
     def test_arbitrary_exception_is_not_public_code(self):
         self.assertEqual('IMPORT_FAILED',_safe_error(RuntimeError('SOME_RANDOM_CODE'),'IMPORT_FAILED','import')['code'])
+    def test_readiness_error_keeps_code_and_stage(self):
+        error=_safe_error(ContractError('FBX_PLUGIN_UNAVAILABLE','local detail','readiness'),'DOWNLOAD_FAILED','download')
+        self.assertEqual('FBX_PLUGIN_UNAVAILABLE',error['code']); self.assertEqual('readiness',error['stage'])
+    def test_primary_import_error_keeps_nested_rollback_detail(self):
+        from seele_maya.transfer.manager import _with_rollback_detail
+        primary=RuntimeError('IMPORT_CREATED_NO_NODES'); primary.rollback_error=RuntimeError('ROLLBACK_FAILED')
+        error=_with_rollback_detail(_safe_error(primary,'IMPORT_FAILED','import'),primary)
+        self.assertEqual('IMPORT_CREATED_NO_NODES',error['code']); self.assertEqual('import',error['stage'])
+        self.assertEqual('ROLLBACK_FAILED',error['rollback']['code']); self.assertEqual('rollback',error['rollback']['stage'])
+    def test_warning_deduplication(self):
+        from seele_maya.transfer.manager import _append_warnings
+        item={'warnings':[]}; warning={'code':'OBJ_MTL_NOT_PROVIDED','path':'missing.mtl'}
+        _append_warnings(item,[warning,dict(warning)])
+        self.assertEqual([warning],item['warnings'])
     def test_cancel_rollback_failure_is_terminal_failed(self):
         class Importer(object):
             def rollback(self,result): raise RuntimeError('ROLLBACK_FAILED')
@@ -67,6 +81,17 @@ class TestManager(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies'), patch('seele_maya.transfer.manager.cleanup_staging',side_effect=lambda value: cleaned.append(value)):
             manager._run(tid)
         self.assertEqual('completed',manager.get(tid)['state']); self.assertEqual([root],cleaned)
+    def test_dependency_warning_completes_with_warnings(self):
+        class Importer(object):
+            def readiness(self,name,refresh=False): return {'ready':True,'reason':None}
+            def import_transfer(self,item,root): return {'group':'g','namespace':'n','nodesCreated':1,'warnings':[]}
+            def rollback(self,result): return True
+        manager=TransferManager(); manager.importer=Importer(); tid=str(uuid.uuid4())
+        item={'transferId':tid,'state':'accepted','cancel':threading.Event(),'warnings':[],'createdAt':'x','updatedAt':'x','manifest':{'target':{'format':'obj'},'entryFileId':'m','files':[{'id':'m'}]},'digest':'x'}; manager.items[tid]=item
+        warning={'code':'OBJ_MTL_NOT_PROVIDED','message':'OBJ material library was not provided','path':'missing.mtl'}
+        with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies',return_value={'warnings':[warning]}), patch('seele_maya.transfer.manager.cleanup_staging'):
+            manager._run(tid)
+        result=manager.get(tid); self.assertEqual('completed_with_warnings',result['state']); self.assertEqual([warning],result['warnings'])
     def test_cancel_before_import_cleans_staging(self):
         manager=TransferManager(); tid=str(uuid.uuid4()); event=threading.Event(); event.set(); item={'transferId':tid,'state':'accepted','cancel':event,'warnings':[],'createdAt':'x','updatedAt':'x','manifest':{'target':{'format':'fbx'},'entryFileId':'m','files':[{'id':'m'}]},'digest':'x'}; manager.items[tid]=item; cleaned=[]
         with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies'), patch('seele_maya.transfer.manager.cleanup_staging',side_effect=lambda value: cleaned.append(value)):

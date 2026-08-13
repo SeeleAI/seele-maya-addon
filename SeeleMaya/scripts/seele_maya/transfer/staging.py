@@ -2,9 +2,10 @@ import os, stat, shutil
 from ..config import data_dir
 
 def staging_root(transfer_id):
-    parent=os.path.join(data_dir(),"staging")
+    data_root=os.path.realpath(data_dir())
+    parent=os.path.join(data_root,"staging")
     os.makedirs(parent,mode=0o700,exist_ok=True)
-    _assert_no_links(parent)
+    _assert_no_links(parent,data_root)
     base=os.path.join(parent,transfer_id)
     try: os.mkdir(base,0o700)
     except FileExistsError: raise ValueError("STAGING_CONFLICT")
@@ -12,11 +13,13 @@ def staging_root(transfer_id):
     return base
 
 def _is_reparse(st): return bool(getattr(st,"st_file_attributes",0) & 0x400)
-def _assert_no_links(path):
-    current=os.path.abspath(path); parts=[]
+def _assert_no_links(path,boundary):
+    current=os.path.abspath(path); boundary=os.path.abspath(boundary); parts=[]
+    if os.path.commonpath((boundary,current))!=boundary: raise ValueError("PATH_UNSAFE")
     while True:
         parts.append(current); parent=os.path.dirname(current)
-        if parent==current: break
+        if current==boundary: break
+        if parent==current: raise ValueError("PATH_UNSAFE")
         current=parent
     for candidate in reversed(parts):
         if not os.path.exists(candidate): continue
@@ -30,20 +33,25 @@ def safe_path(root, relative):
     result = os.path.abspath(os.path.join(root, "files", *rel.split("/")))
     if os.path.commonpath((os.path.abspath(root), result)) != os.path.abspath(root):
         raise ValueError("PATH_UNSAFE")
-    parent=os.path.dirname(result); os.makedirs(parent,mode=0o700,exist_ok=True); _assert_no_links(parent)
-    if os.path.lexists(result): _assert_no_links(result)
+    parent=os.path.dirname(result); os.makedirs(parent,mode=0o700,exist_ok=True); _assert_no_links(parent,root)
+    if os.path.lexists(result): _assert_no_links(result,root)
     return result
 
 def open_part(path):
-    _assert_no_links(os.path.dirname(path))
+    current=os.path.dirname(os.path.abspath(path)); boundary=None
+    while os.path.dirname(current)!=current:
+        if os.path.basename(current)=="files": boundary=os.path.dirname(current); break
+        current=os.path.dirname(current)
+    if boundary is None: raise ValueError("PATH_UNSAFE")
+    _assert_no_links(os.path.dirname(path),boundary)
     flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL
     if hasattr(os,"O_NOFOLLOW"): flags |= os.O_NOFOLLOW
     return os.fdopen(os.open(path,flags,0o600),"wb")
 
 def cleanup_staging(root):
-    expected=os.path.abspath(os.path.join(data_dir(),"staging"))
+    expected=os.path.abspath(os.path.join(os.path.realpath(data_dir()),"staging"))
     target=os.path.abspath(root)
     if os.path.commonpath((expected,target))!=expected or target==expected: raise ValueError("PATH_UNSAFE")
     if os.path.lexists(target):
-        _assert_no_links(target)
+        _assert_no_links(target,expected)
         shutil.rmtree(target)

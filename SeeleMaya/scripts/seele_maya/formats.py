@@ -1,7 +1,7 @@
 """Single source of truth for accepted Maya transfer formats."""
 FORMAT_SPECS = {
     "fbx":{"phase":"P0","provider":"fbxmaya","plugins":("fbxmaya",),"translators":("FBX",),"handler":"file","policy":"optional_textures","dependency_fail_closed":False,"extension":".fbx","dependencies":{"TEXTURE":("png","jpg","jpeg","tga","tif","tiff","exr","bmp")}},
-    "obj":{"phase":"P0","provider":"maya_obj_translator","plugins":(),"translators":("OBJ",),"handler":"file","dependency_validator":"obj","policy":"obj_mtl_textures","dependency_fail_closed":True,"extension":".obj","dependencies":{"AUXILIARY":("mtl",),"TEXTURE":("png","jpg","jpeg","tga","tif","tiff","exr","bmp")}},
+    "obj":{"phase":"P0","provider":"maya_obj_translator","plugins":(),"translators":("OBJ",),"handler":"file","dependency_validator":"obj","policy":"obj_mtl_textures","dependency_fail_closed":False,"extension":".obj","dependencies":{"AUXILIARY":("mtl",),"TEXTURE":("png","jpg","jpeg","tga","tif","tiff","exr","bmp")}},
     "abc":{"phase":"P0","provider":"AbcImport","plugins":("AbcImport",),"commands":("AbcImport",),"handler":"abc","policy":"none","extension":".abc","dependencies":{}},
     "dae":{"phase":"P1","provider":"DAE_FBX","plugins":("fbxmaya",),"translators":("DAE_FBX",),"handler":"file","policy":"none","extension":".dae","dependencies":{}},
     "usd":{"phase":"P1","provider":"mayaUsdPlugin","plugins":("mayaUsdPlugin",),"handler":None,"policy":"none","extension":".usd","dependencies":{},"import_surface_verified":False},

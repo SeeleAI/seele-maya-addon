@@ -39,13 +39,13 @@ class TestObjDependencies(unittest.TestCase):
                 path=os.path.join(root,'files',*spec['path'].split('/')); os.makedirs(os.path.dirname(path),exist_ok=True)
                 with open(path,'wb') as stream: stream.write(data)
             closure=validate_obj_closure(root,value); self.assertEqual(['materials/a.mtl'],closure['materials']); self.assertEqual(['textures/a.png'],closure['textures'])
-    def test_obj_missing_mtl_fails_closed(self):
+    def test_obj_missing_mtl_warns(self):
         obj=b'mtllib absent.mtl\n'; value=manifest('obj',[file_spec('model','MODEL','obj','model.obj',obj)]); validate_manifest(value,'r')
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root,'files'))
             with open(os.path.join(root,'files','model.obj'),'wb') as stream: stream.write(obj)
-            with self.assertRaises(ContractError) as caught: validate_obj_closure(root,value)
-            self.assertEqual('DEPENDENCY_MISSING',caught.exception.code)
+            result=validate_obj_closure(root,value)
+            self.assertEqual('OBJ_MTL_NOT_PROVIDED',result['warnings'][0]['code'])
     def test_obj_percent_encoded_dependency_rejected(self):
         obj=b'mtllib %2e%2e/escape.mtl\n'; value=manifest('obj',[file_spec('model','MODEL','obj','model.obj',obj)]); validate_manifest(value,'r')
         with tempfile.TemporaryDirectory() as root:

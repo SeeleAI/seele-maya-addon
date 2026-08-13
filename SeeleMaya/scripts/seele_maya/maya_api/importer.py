@@ -53,13 +53,14 @@ class MayaImporter(object):
         if not ready["ready"]: raise RuntimeError(ready["reason"])
         model=next(f for f in manifest["files"] if f["id"]==manifest["entryFileId"])
         path=os.path.abspath(os.path.join(root,"files",model["path"]))
-        ns="seele_"+item["transferId"].replace("-","")[:8]; before=snapshot.capture(self.cmds); nodes=[]; group=None
+        ns="seele_"+item["transferId"].replace("-","")[:8]; before=snapshot.capture(self.cmds); returned_nodes=[]; group=None; primary_error=None
         try:
             if not self.cmds.namespace(exists=ns): self.cmds.namespace(add=ns)
-            nodes=self._invoke_import(path,format_name,ns,before)
-            if not nodes: raise RuntimeError("IMPORT_CREATED_NO_NODES")
-            node_set=set(nodes); tops=[]
-            for node in nodes:
+            returned_nodes=self._invoke_import(path,format_name,ns,before)
+            imported_delta=snapshot.diff(self.cmds,before); owned_nodes=list(imported_delta["createdNodes"])
+            if not owned_nodes: raise RuntimeError("IMPORT_CREATED_NO_NODES")
+            node_set=set(owned_nodes); tops=[]
+            for node in owned_nodes:
                 if self.cmds.objExists(node) and self.cmds.nodeType(node)=="transform":
                     parent=self.cmds.listRelatives(node,parent=True,fullPath=True) or []
                     if not parent or parent[0] not in node_set: tops.append(node)
@@ -69,11 +70,14 @@ class MayaImporter(object):
             for name,value in (("seeleTransferId",item["transferId"]),("seeleReceiverVersion",__version__),("seeleCanvasId",manifest.get("canvasId", "")),("seeleSourceFormat",format_name)):
                 self.cmds.addAttr(group,longName=name,dataType="string"); self.cmds.setAttr(group+"."+name,value,type="string")
             delta=snapshot.diff(self.cmds,before)
-            return {"group":group,"namespace":ns,"nodesCreated":len(delta["createdUuids"]),"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"warnings":[]}
-        except Exception:
-            delta=snapshot.diff(self.cmds,before); self.rollback({"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"namespace":ns})
-            raise
+            return {"group":group,"namespace":ns,"nodesCreated":len(delta["createdUuids"]),"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"warnings":[],"returnedNodeCount":len(returned_nodes)}
+        except Exception as exc:
+            primary_error=exc; delta=snapshot.diff(self.cmds,before)
+            try: self.rollback({"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"namespace":ns})
+            except Exception as rollback_exc:
+                setattr(primary_error,"rollback_error",rollback_exc)
+            raise primary_error
         finally:
-            self._restore_or_rollback(before,ns)
+            if primary_error is None: self._restore_or_rollback(before,ns)
     def rollback(self,result):
         return snapshot.rollback(self.cmds,result)
