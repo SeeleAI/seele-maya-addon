@@ -31,6 +31,7 @@ class FakeScene(object):
 class TestSnapshot(unittest.TestCase):
     def test_uuid_delta_and_rollback(self):
         cmds=FakeScene(); cmds.nodes={'old':'|old'}; before=snapshot.capture(cmds); cmds.nodes['new']='|new'; delta=snapshot.diff(cmds,before); self.assertEqual(('new',),delta['createdUuids'])
+        self.assertEqual('new',delta['createdNodeMetadata'][0]['uuid']); self.assertEqual('|new',delta['createdNodeMetadata'][0]['node'])
         result={'snapshot':before,'createdUuids':delta['createdUuids'],'namespace':'seele_x'}; self.assertTrue(snapshot.rollback(cmds,result)); self.assertNotIn('new',cmds.nodes)
     def test_incomplete_rollback_is_reported(self):
         class UndeletableScene(FakeScene):

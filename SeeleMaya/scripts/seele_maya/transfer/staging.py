@@ -48,6 +48,49 @@ def open_part(path):
     if hasattr(os,"O_NOFOLLOW"): flags |= os.O_NOFOLLOW
     return os.fdopen(os.open(path,flags,0o600),"wb")
 
+class _StagedFile(object):
+    def __init__(self,root,relative):
+        self.path=safe_path(root,relative); self.part=self.path+".part"; self.parent_fd=None; self.file=None; self.committed=False
+    def __enter__(self):
+        parent=os.path.dirname(self.path); leaf=os.path.basename(self.path)
+        supports_dir_fd=(os.name!="nt" and hasattr(os,"O_NOFOLLOW") and hasattr(os,"O_DIRECTORY"))
+        if supports_dir_fd:
+            root_fd=os.open(os.path.abspath(self.root),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            current_fd=root_fd
+            try:
+                components=["files"]+[value for value in os.path.dirname(self.relative).split("/") if value]
+                for component in components:
+                    next_fd=os.open(component,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=current_fd)
+                    if current_fd!=root_fd: os.close(current_fd)
+                    current_fd=next_fd
+                self.parent_fd=current_fd
+            finally:
+                if root_fd!=self.parent_fd: os.close(root_fd)
+            flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW
+            self.file=os.fdopen(os.open(leaf+".part",flags,0o600,dir_fd=self.parent_fd),"wb")
+        else: self.file=open_part(self.part)
+        return self
+    def write(self,value): return self.file.write(value)
+    def commit(self):
+        self.file.flush(); os.fsync(self.file.fileno()); self.file.close(); self.file=None
+        if self.parent_fd is not None:
+            leaf=os.path.basename(self.path); os.replace(leaf+".part",leaf,src_dir_fd=self.parent_fd,dst_dir_fd=self.parent_fd)
+        else:
+            _assert_no_links(os.path.dirname(self.path),os.path.dirname(os.path.dirname(self.path)))
+            os.replace(self.part,self.path)
+        self.committed=True
+    def __exit__(self,exc_type,exc,tb):
+        if self.file is not None: self.file.close()
+        if not self.committed:
+            try:
+                if self.parent_fd is not None: os.unlink(os.path.basename(self.path)+".part",dir_fd=self.parent_fd)
+                else: os.remove(self.part)
+            except OSError: pass
+        if self.parent_fd is not None: os.close(self.parent_fd)
+
+def staged_file(root,relative):
+    value=_StagedFile(root,relative); value.root=root; value.relative=relative; return value
+
 def cleanup_staging(root):
     expected=os.path.abspath(os.path.join(os.path.realpath(data_dir()),"staging"))
     target=os.path.abspath(root)

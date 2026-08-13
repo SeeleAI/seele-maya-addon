@@ -35,11 +35,11 @@ class TestDownloadUrl(unittest.TestCase):
         for host in expected: self.assertTrue(downloader._allowed('https://'+host+'/asset.fbx'),host)
         self.assertFalse(downloader._allowed('https://static.seeles.ai.evil.example/asset.fbx'))
         self.assertFalse(downloader._allowed('https://evilstatic.seeles.ai/asset.fbx'))
-    def test_exact_and_subdomain(self):
+    def test_exact_host_only(self):
         old=downloader.ALLOWED_DOWNLOAD_HOSTS; downloader.ALLOWED_DOWNLOAD_HOSTS=('assets.example.com',)
         try:
             self.assertTrue(downloader._allowed('https://assets.example.com/a.fbx'))
-            self.assertTrue(downloader._allowed('https://cdn.assets.example.com/a.fbx'))
+            self.assertFalse(downloader._allowed('https://cdn.assets.example.com/a.fbx'))
             self.assertFalse(downloader._allowed('https://assets.example.com.evil/a.fbx'))
             self.assertFalse(downloader._allowed('http://assets.example.com/a.fbx'))
             self.assertFalse(downloader._allowed('https://assets.example.com:444/a.fbx'))
@@ -56,6 +56,8 @@ class TestManager(unittest.TestCase):
     def test_readiness_error_keeps_code_and_stage(self):
         error=_safe_error(ContractError('FBX_PLUGIN_UNAVAILABLE','local detail','readiness'),'DOWNLOAD_FAILED','download')
         self.assertEqual('FBX_PLUGIN_UNAVAILABLE',error['code']); self.assertEqual('readiness',error['stage'])
+        surface=_safe_error(ContractError('FBX_IMPORT_SURFACE_UNAVAILABLE','local detail','readiness'),'IMPORT_FAILED','import')
+        self.assertEqual('FBX_IMPORT_SURFACE_UNAVAILABLE',surface['code']); self.assertEqual('readiness',surface['stage'])
     def test_primary_import_error_keeps_nested_rollback_detail(self):
         from seele_maya.transfer.manager import _with_rollback_detail
         primary=RuntimeError('IMPORT_CREATED_NO_NODES'); primary.rollback_error=RuntimeError('ROLLBACK_FAILED')

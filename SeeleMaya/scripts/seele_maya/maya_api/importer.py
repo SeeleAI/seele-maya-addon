@@ -1,4 +1,4 @@
-import os
+import json, os
 import platform
 from ..formats import FORMAT_SPECS, format_spec
 from .. import __version__
@@ -70,7 +70,9 @@ class MayaImporter(object):
             for name,value in (("seeleTransferId",item["transferId"]),("seeleReceiverVersion",__version__),("seeleCanvasId",manifest.get("canvasId", "")),("seeleSourceFormat",format_name)):
                 self.cmds.addAttr(group,longName=name,dataType="string"); self.cmds.setAttr(group+"."+name,value,type="string")
             delta=snapshot.diff(self.cmds,before)
-            return {"group":group,"namespace":ns,"nodesCreated":len(delta["createdUuids"]),"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"warnings":[],"returnedNodeCount":len(returned_nodes)}
+            member_uuids=tuple(value for value in delta["createdUuids"] if value not in (self.cmds.ls(group,uuid=True) or ()))
+            self.cmds.addAttr(group,longName="seeleMemberUuids",dataType="string"); self.cmds.setAttr(group+".seeleMemberUuids",json.dumps(member_uuids),type="string")
+            return {"group":group,"namespace":ns,"nodesCreated":len(delta["createdUuids"]),"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"createdNodeMetadata":delta["createdNodeMetadata"],"memberUuids":member_uuids,"snapshot":before,"warnings":[],"returnedNodeCount":len(returned_nodes)}
         except Exception as exc:
             primary_error=exc; delta=snapshot.diff(self.cmds,before)
             try: self.rollback({"createdUuids":delta["createdUuids"],"createdReferences":delta["createdReferences"],"snapshot":before,"namespace":ns})

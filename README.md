@@ -31,6 +31,8 @@ https://code4agent-feature-maya-dcc-server-web.seele.chat
 
 `SEELE_ALLOWED_ORIGINS` 和 `SEELE_ALLOWED_DOWNLOAD_HOSTS` 使用逗号分隔，只用于追加可信来源或下载域名；不支持 `*`。插件已经内置 SEELE 官方静态资源、S3、CloudFront 和 Azure Blob 下载域名。下载只允许 HTTPS，且每次 redirect 都必须继续满足 allowlist 和网络安全检查。
 
+下载 host 采用 IDNA canonicalization 后的 exact match，不自动信任子域；DNS 结果必须全部是公网地址，连接固定到已验证 IP，并继续使用原始 hostname 做 TLS 校验。macOS/Linux 使用逐段 `openat`/`O_NOFOLLOW` 和 directory fd 完成 staging 写入与原子替换；Windows 标准库缺少等价能力，junction/reparse 竞态仍需平台原生实现，属于发布门禁。
+
 ## 本地测试（无需 Maya）
 
 ```powershell

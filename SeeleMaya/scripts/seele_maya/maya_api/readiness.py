@@ -25,15 +25,22 @@ class ReadinessProbe(object):
                 if not loaded and load: self.cmds.loadPlugin(plugin,quiet=True); loaded=bool(self.cmds.pluginInfo(plugin,query=True,loaded=True))
                 if not loaded: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_PLUGIN_UNAVAILABLE"}
             if not spec.get("handler") or spec.get("import_surface_verified") is False: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_IMPORT_SURFACE_UNAVAILABLE"}
+            if spec.get("handler")=="file" and not callable(getattr(self.cmds,"file",None)): return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_IMPORT_SURFACE_UNAVAILABLE"}
             translators=set(self.cmds.translator(query=True,list=True) or [])
             for translator in spec.get("translators",()):
                 if translator not in translators: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_TRANSLATOR_UNAVAILABLE"}
-                try: self.cmds.translator(translator,query=True,loaded=True)
+                try:
+                    if not bool(self.cmds.translator(translator,query=True,loaded=True)): raise RuntimeError()
                 except Exception: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_TRANSLATOR_UNAVAILABLE"}
             for command in spec.get("commands",()):
                 try: callable_command=callable(getattr(self.cmds,command))
                 except Exception: callable_command=False
                 if not callable_command: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_COMMAND_UNAVAILABLE"}
+                command_info=getattr(self.cmds,"commandInfo",None)
+                if callable(command_info):
+                    try:
+                        if not command_info(command,exists=True): return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_COMMAND_UNAVAILABLE"}
+                    except Exception: return {"ready":False,"provider":spec["provider"],"reason":format_name.upper()+"_COMMAND_UNAVAILABLE"}
             result={"ready":True,"provider":spec["provider"],"reason":None,"handler":spec["handler"]}
             if spec.get("translators"): result["translator"]=spec["translators"][0]
             if spec.get("commands"): result["command"]=spec["commands"][0]

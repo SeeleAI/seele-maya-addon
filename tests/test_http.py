@@ -2,6 +2,7 @@ import json, os, sys, threading, unittest
 from http.client import HTTPConnection
 sys.path.insert(0,os.path.abspath('SeeleMaya/scripts'))
 import seele_maya.bridge.server as server
+from seele_maya.bridge.server import error_status
 from seele_maya.config import DEFAULT_ALLOWED_ORIGINS
 
 class TestHttp(unittest.TestCase):
@@ -44,3 +45,8 @@ class TestHttp(unittest.TestCase):
             self.assertIn(b'503 Service Unavailable',raw); self.assertIn(b'"code": "SERVER_BUSY"',raw)
         finally:
             self.httpd._slots=original; second.close()
+    def test_contract_error_status_mapping(self):
+        self.assertEqual(409,error_status('FBX_PLUGIN_UNAVAILABLE','readiness'))
+        self.assertEqual(413,error_status('SIZE_LIMIT_EXCEEDED','validation'))
+        self.assertEqual(429,error_status('TOO_MANY_TRANSFERS','validation'))
+        self.assertEqual(503,error_status('RECEIVER_STOPPING','validation'))

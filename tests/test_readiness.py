@@ -10,6 +10,8 @@ class FakeCmds(object):
     def translator(self,name=None,query=False,list=False,loaded=False):
         if list: return tuple(self.translators)
         return name in self.translators
+    def file(self,*args,**kwargs): return []
+    def commandInfo(self,name,exists=False): return name in self.commands
     def __getattr__(self,name):
         if name in self.commands: return lambda *args,**kwargs: None
         raise AttributeError(name)

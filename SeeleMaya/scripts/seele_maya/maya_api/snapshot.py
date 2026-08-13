@@ -52,7 +52,14 @@ def diff(cmds,before):
     created={key:value for key,value in after.items() if key not in before["nodes"]}
     try: references=set(cmds.ls(type="reference",long=True) or [])
     except Exception: references=set()
-    return {"createdUuids":tuple(created),"createdNodes":tuple(created.values()),"createdReferences":tuple(references-before.get("references",set()))}
+    metadata=[]
+    for node_uuid,node in created.items():
+        try: node_type=cmds.nodeType(node)
+        except Exception: node_type=None
+        try: parents=tuple(cmds.listRelatives(node,parent=True,fullPath=True) or ())
+        except Exception: parents=()
+        metadata.append({"uuid":node_uuid,"node":node,"type":node_type,"parents":parents})
+    return {"createdUuids":tuple(created),"createdNodes":tuple(created.values()),"createdNodeMetadata":tuple(metadata),"createdReferences":tuple(references-before.get("references",set()))}
 
 def restore_environment(cmds,before):
     cmds.namespace(setNamespace=before["namespace"])

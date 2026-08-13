@@ -12,6 +12,13 @@ from .. import PROTOCOL_VERSION, __version__
 RECEIVER_ID=receiver_id(); challenges=ChallengeStore(); manager=TransferManager()
 _server=None; _thread=None; _lock=threading.RLock(); _status={"running":False,"error":None}
 def envelope(data=None, error=None): return {"ok": error is None, "data": data} if error is None else {"ok":False,"error":error}
+def error_status(code,stage="validation"):
+    if stage=="readiness": return 409
+    if code in ("SIZE_LIMIT_EXCEEDED","BODY_TOO_LARGE","FILE_LIMIT_EXCEEDED"): return 413
+    if code=="TOO_MANY_TRANSFERS": return 429
+    if code in ("SERVER_BUSY","RECEIVER_STOPPING"): return 503
+    if code in ("TRANSFER_CONFLICT",): return 409
+    return 400
 class BoundedHTTPServer(ThreadingHTTPServer):
     daemon_threads=True
     def __init__(self,*args,**kwargs):
@@ -83,7 +90,8 @@ class Handler(BaseHTTPRequestHandler):
                 item=manager.accept(body["manifest"]); self._send(202,envelope({"transferId":item["transferId"],"state":item["state"],"createdAt":item["createdAt"],"updatedAt":item["updatedAt"]}),origin)
             except (ContractError,ValueError) as e:
                 code=getattr(e,"code",None) or (str(e) if str(e).isupper() else "MANIFEST_INVALID")
-                self._send(400,envelope(error={"code":code,"message":str(e) if isinstance(e,ContractError) else "transfer request is invalid","retryable":getattr(e,"retryable",False),"stage":getattr(e,"stage","validation")}),origin)
+                stage=getattr(e,"stage","validation")
+                self._send(error_status(code,stage),envelope(error={"code":code,"message":str(e) if isinstance(e,ContractError) else "transfer request is invalid","retryable":getattr(e,"retryable",False),"stage":stage}),origin)
         else: self._send(404,envelope(error={"code":"NOT_FOUND","message":"not found","retryable":False,"stage":"routing"}),origin)
     def log_message(self,*args): pass
 

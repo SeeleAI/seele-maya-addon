@@ -1,9 +1,11 @@
-import os, sys, tempfile, unittest
+import os, socket, sys, tempfile, unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0,os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.contract.validator import _validate_path, ContractError
 from seele_maya.transfer.downloader import ByteBudget
 from seele_maya.transfer.staging import safe_path, _assert_no_links
+import seele_maya.transfer.downloader as downloader
 
 class TestPaths(unittest.TestCase):
     def test_windows_paths(self):
@@ -30,3 +32,24 @@ class TestBudget(unittest.TestCase):
     def test_transfer_total(self):
         budget=ByteBudget(10); budget.add(6)
         with self.assertRaises(ValueError): budget.add(5)
+
+class TestDownloadNetwork(unittest.TestCase):
+    def test_idna_is_canonicalized_and_allowlist_is_exact(self):
+        old=downloader.ALLOWED_DOWNLOAD_HOSTS; downloader.ALLOWED_DOWNLOAD_HOSTS=('xn--bcher-kva.example',)
+        try:
+            self.assertTrue(downloader.url_allowed('https://bücher.example/model.fbx'))
+            self.assertFalse(downloader.url_allowed('https://cdn.xn--bcher-kva.example/model.fbx'))
+        finally: downloader.ALLOWED_DOWNLOAD_HOSTS=old
+    def test_private_dns_answer_is_rejected(self):
+        record=(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',443))
+        with patch('seele_maya.transfer.downloader.socket.getaddrinfo',return_value=[record]):
+            with self.assertRaisesRegex(ValueError,'DNS_ADDRESS_UNSAFE'): downloader._public_addresses('assets.example')
+    def test_content_length_is_checked_before_body(self):
+        class Response(object):
+            def __init__(self,value): self.value=value
+            def getheader(self,name): return self.value
+        budget=downloader.ByteBudget(100)
+        downloader._preflight_length(Response('10'),10,budget)
+        with self.assertRaisesRegex(ValueError,'SIZE_MISMATCH'): downloader._preflight_length(Response('11'),10,budget)
+        with self.assertRaisesRegex(ValueError,'SIZE_MISMATCH'): downloader._preflight_length(Response('-1'),10,budget)
+        with self.assertRaisesRegex(ValueError,'SIZE_LIMIT_EXCEEDED'): downloader._preflight_length(Response('60'),60,downloader.ByteBudget(50))
