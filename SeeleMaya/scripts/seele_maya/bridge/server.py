@@ -72,8 +72,11 @@ class Handler(BaseHTTPRequestHandler):
             item=manager.cancel(self.path.split("/")[-2])
             if not item: self._send(404,envelope(error={"code":"TRANSFER_NOT_FOUND","message":"transfer not found","retryable":False,"stage":"routing"}),origin); return
             self._send(200 if item["state"] in ("completed","completed_with_warnings","failed","cancelled") else 202,envelope({"transferId":item["transferId"],"state":item["state"]}),origin); return
-        try: length=int(self.headers.get("Content-Length","0"))
+        raw_length=self.headers.get("Content-Length")
+        if raw_length is None: return self._send(411,envelope(error={"code":"LENGTH_REQUIRED","message":"Content-Length is required","retryable":False,"stage":"validation"}),origin)
+        try: length=int(raw_length)
         except ValueError: return self._send(400,envelope(error={"code":"INVALID_REQUEST","message":"invalid Content-Length","retryable":False,"stage":"validation"}),origin)
+        if length<0: return self._send(400,envelope(error={"code":"INVALID_REQUEST","message":"invalid Content-Length","retryable":False,"stage":"validation"}),origin)
         if length>MAX_BODY_BYTES: return self._send(413,envelope(error={"code":"BODY_TOO_LARGE","message":"request too large","retryable":False,"stage":"validation"}),origin)
         try: body=json.loads(self.rfile.read(length).decode())
         except Exception: return self._send(400,envelope(error={"code":"INVALID_JSON","message":"invalid JSON","retryable":False,"stage":"validation"}),origin)
@@ -109,11 +112,13 @@ def start():
 
 def stop(timeout=5):
     global _server,_thread
+    workers_stopped=manager.shutdown(timeout)
+    if not workers_stopped:
+        manager.start_accepting(); _status.update(running=True,error="WORKERS_STILL_RUNNING"); return dict(_status)
     with _lock: server=_server; thread=_thread; _server=None; _thread=None
     if server: server.shutdown(); server.server_close()
-    workers_stopped=manager.shutdown(timeout)
     if thread: thread.join(timeout)
-    _status.update(running=False,error=None if workers_stopped else "WORKERS_STILL_RUNNING"); return dict(_status)
+    _status.update(running=False,error=None); return dict(_status)
 
 def status(): return dict(_status)
 if __name__=='__main__':

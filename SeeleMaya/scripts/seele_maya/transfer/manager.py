@@ -1,9 +1,9 @@
 import copy, threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from ..contract.models import digest_manifest
 from .staging import staging_root, cleanup_staging
 from .downloader import download_file, ByteBudget
-from ..config import MAX_TOTAL_BYTES, MAX_INFLIGHT_TRANSFERS
+from ..config import MAX_TOTAL_BYTES, MAX_INFLIGHT_TRANSFERS, TERMINAL_TASK_TTL_SECONDS, MAX_TERMINAL_TASKS
 from ..maya_api.importer import get_importer
 from ..maya_api.main_thread import execute
 from ..contract.dependencies import validate_dependencies
@@ -15,7 +15,7 @@ TERMINAL=set(("completed", "completed_with_warnings", "failed", "cancelled"))
 PUBLIC_STATES=set(("accepted","downloading","verifying","queued","importing_geometry","organizing_scene","cancel_pending","completed","completed_with_warnings","failed","cancelled"))
 def _now(): return datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
 def _safe_error(exc, default, stage):
-    stable=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","REDIRECT_LIMIT_EXCEEDED","DNS_RESOLUTION_FAILED","DNS_ADDRESS_UNSAFE","DOWNLOAD_HTTP_ERROR","PATH_UNSAFE","STAGING_CONFLICT","STAGING_CLEANUP_FAILED","DEPENDENCY_MISSING","DEPENDENCY_UNSUPPORTED","FBX_PLUGIN_UNAVAILABLE","FBX_TRANSLATOR_UNAVAILABLE","OBJ_TRANSLATOR_UNAVAILABLE","ABC_PLUGIN_UNAVAILABLE","ABC_COMMAND_UNAVAILABLE","DAE_PLUGIN_UNAVAILABLE","DAE_TRANSLATOR_UNAVAILABLE","USD_PLUGIN_UNAVAILABLE","USDA_PLUGIN_UNAVAILABLE","USDC_PLUGIN_UNAVAILABLE","IMPORT_CREATED_NO_NODES","ROLLBACK_INCOMPLETE","ROLLBACK_FAILED","SERVER_BUSY","TOO_MANY_TRANSFERS","RECEIVER_STOPPING"))
+    stable=frozenset(("CANCELLED","HASH_MISMATCH","SIZE_MISMATCH","SIZE_LIMIT_EXCEEDED","URL_NOT_ALLOWED","REDIRECT_NOT_ALLOWED","REDIRECT_LIMIT_EXCEEDED","DNS_RESOLUTION_FAILED","DNS_ADDRESS_UNSAFE","DOWNLOAD_HTTP_ERROR","DOWNLOAD_DEADLINE_EXCEEDED","PATH_UNSAFE","PATH_COLLISION","STAGING_CONFLICT","STAGING_CLEANUP_FAILED","DEPENDENCY_MISSING","DEPENDENCY_UNSUPPORTED","FBX_PLUGIN_UNAVAILABLE","FBX_TRANSLATOR_UNAVAILABLE","OBJ_TRANSLATOR_UNAVAILABLE","ABC_PLUGIN_UNAVAILABLE","ABC_COMMAND_UNAVAILABLE","DAE_PLUGIN_UNAVAILABLE","DAE_TRANSLATOR_UNAVAILABLE","USD_PLUGIN_UNAVAILABLE","USDA_PLUGIN_UNAVAILABLE","USDC_PLUGIN_UNAVAILABLE","IMPORT_CREATED_NO_NODES","ROLLBACK_INCOMPLETE","ROLLBACK_FAILED","SERVER_BUSY","TOO_MANY_TRANSFERS","RECEIVER_STOPPING"))
     candidate=getattr(exc,"code",None) or str(exc)
     readiness_code=isinstance(candidate,str) and candidate.endswith(("_PLUGIN_UNAVAILABLE","_TRANSLATOR_UNAVAILABLE","_COMMAND_UNAVAILABLE","_IMPORTER_UNAVAILABLE","_IMPORT_SURFACE_UNAVAILABLE"))
     code=candidate if candidate in stable or readiness_code else default
@@ -35,9 +35,22 @@ class TransferManager:
     def __init__(self): self.items={}; self.lock=threading.RLock(); self.import_lock=threading.Lock(); self.importer=get_importer(); self.accepting=True; self.threads={}
     def start_accepting(self):
         with self.lock: self.accepting=True
+    def _prune_terminal(self):
+        now=datetime.now(timezone.utc); terminal=[]
+        for tid,item in self.items.items():
+            if item["state"] not in TERMINAL: continue
+            try: updated=datetime.fromisoformat(item["updatedAt"].replace("Z","+00:00"))
+            except Exception: updated=now
+            terminal.append((updated,tid))
+        remove=set(tid for updated,tid in terminal if now-updated>timedelta(seconds=TERMINAL_TASK_TTL_SECONDS))
+        retained=sorted((updated,tid) for updated,tid in terminal if tid not in remove)
+        if len(retained)>MAX_TERMINAL_TASKS: remove.update(tid for _,tid in retained[:len(retained)-MAX_TERMINAL_TASKS])
+        for tid in remove:
+            self.items.pop(tid,None); self.threads.pop(tid,None)
     def accept(self, manifest):
         tid=manifest["transferId"]; dg=digest_manifest(manifest)
         with self.lock:
+            self._prune_terminal()
             if not self.accepting: raise ValueError("RECEIVER_STOPPING")
             old=self.items.get(tid)
             if old:
@@ -131,6 +144,10 @@ class TransferManager:
             if item["cancel"].is_set(): return self.transition(tid,"cancelled")
             self.transition(tid,"importing_geometry")
             with self.import_lock:
+                if item["cancel"].is_set():
+                    if item["state"]=="cancel_pending": self.transition(tid,"rollback"); self.transition(tid,"cancelled")
+                    elif item["state"]=="importing_geometry": self.transition(tid,"cancel_pending"); self.transition(tid,"rollback"); self.transition(tid,"cancelled")
+                    cleanup=True; return
                 target_format=item["manifest"]["target"]["format"]; readiness=execute(lambda: self.importer.readiness(target_format,refresh=True))
                 if not readiness["ready"]: raise ContractError(readiness["reason"] or "FORMAT_NOT_READY","format is not ready","readiness")
                 import_result=execute(lambda: self.importer.import_transfer(item,root))

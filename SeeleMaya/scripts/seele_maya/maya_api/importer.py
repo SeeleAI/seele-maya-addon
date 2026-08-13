@@ -37,7 +37,8 @@ class MayaImporter(object):
         raise RuntimeError("IMPORT_SURFACE_UNAVAILABLE")
     def _restore_or_rollback(self,before,namespace):
         try:
-            snapshot.restore_environment(self.cmds,before)
+            snapshot.restore_environment(self.cmds,before,restore_modified=False)
+            self.cmds.file(modified=True)
         except Exception:
             delta=snapshot.diff(self.cmds,before)
             try:

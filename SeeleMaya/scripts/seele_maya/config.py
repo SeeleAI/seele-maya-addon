@@ -13,10 +13,13 @@ MAX_MANIFEST_TTL_SECONDS = 3600
 MAX_INFLIGHT_TRANSFERS = 8
 MAX_HTTP_THREADS = 16
 REQUEST_TIMEOUT_SECONDS = 10
+DOWNLOAD_DEADLINE_SECONDS = 300
 READINESS_CACHE_SECONDS = 5
 MAX_CREATED_AT_FUTURE_SECONDS = 300
+TERMINAL_TASK_TTL_SECONDS = 3600
+MAX_TERMINAL_TASKS = 256
 DEFAULT_ALLOWED_ORIGINS = (
-    "https://code4agent-feature-maya-dcc-server-web.seele.chat",
+    "https://www.seeles.ai",
 )
 _configured_origins = tuple(x.strip() for x in os.environ.get("SEELE_ALLOWED_ORIGINS", "").split(",") if x.strip())
 ALLOWED_ORIGINS = tuple(dict.fromkeys(DEFAULT_ALLOWED_ORIGINS + _configured_origins))

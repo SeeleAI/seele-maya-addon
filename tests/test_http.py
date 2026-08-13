@@ -29,10 +29,11 @@ class TestHttp(unittest.TestCase):
             self.assertEqual(200,status); self.assertEqual('ready',body['data']['readiness']); self.assertEqual(['obj'],body['data']['capabilities']['formats'])
         finally: server.manager.importer=original
     def test_origin_rejected(self): self.assertEqual(403,self.request('/v1/health','https://evil.test')[0])
-    def test_feature_origin_is_default_exact_origin(self):
-        origin='https://code4agent-feature-maya-dcc-server-web.seele.chat'
+    def test_production_origin_is_default_exact_origin(self):
+        origin='https://www.seeles.ai'
         self.assertIn(origin,DEFAULT_ALLOWED_ORIGINS)
         self.assertNotIn(origin+'.evil.example',DEFAULT_ALLOWED_ORIGINS)
+        self.assertNotIn('https://code4agent-feature-maya-dcc-server-web.seele.chat',DEFAULT_ALLOWED_ORIGINS)
     def test_unknown_transfer(self): self.assertEqual(404,self.request('/v1/transfers/missing','https://app.test')[0])
     def test_receiver_lifecycle(self):
         old_port=server.PORT
@@ -46,6 +47,12 @@ class TestHttp(unittest.TestCase):
         body=json.dumps({'receiverId':server.RECEIVER_ID,'challenge':health['data']['challenge'],'manifest':{}})
         conn=HTTPConnection('127.0.0.1',self.httpd.server_port,timeout=3); conn.request('POST','/v1/transfers',body=body,headers={'Origin':'https://app.test','Content-Type':'application/json'}); response=conn.getresponse(); payload=json.loads(response.read()); conn.close()
         self.assertEqual(400,response.status); self.assertEqual('UNSUPPORTED_PROTOCOL',payload['error']['code'])
+    def test_negative_content_length_is_rejected(self):
+        request=(b'POST /v1/transfers HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://app.test\r\nContent-Length: -1\r\nConnection: close\r\n\r\n')
+        sock=__import__('socket').create_connection(('127.0.0.1',self.httpd.server_port),timeout=3)
+        try:
+            sock.sendall(request); raw=sock.recv(4096); self.assertIn(b'400 Bad Request',raw)
+        finally:sock.close()
     def test_busy_returns_json_503(self):
         class NoSlots(object):
             def acquire(self,value): return False

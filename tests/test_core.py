@@ -112,6 +112,31 @@ class TestManager(unittest.TestCase):
     def test_shutdown_rejects_new_transfer(self):
         manager=TransferManager(); manager.shutdown(0)
         with self.assertRaisesRegex(ValueError,'RECEIVER_STOPPING'): manager.accept({'transferId':str(uuid.uuid4()),'files':[]})
+    def test_shutdown_reports_live_worker(self):
+        manager=TransferManager(); tid=str(uuid.uuid4()); release=threading.Event()
+        worker=threading.Thread(target=lambda:release.wait(2)); worker.start()
+        manager.items[tid]={"transferId":tid,"state":"downloading","cancel":threading.Event(),"warnings":[],"createdAt":"x","updatedAt":"x","manifest":{},"digest":"x"}; manager.threads[tid]=worker
+        try:self.assertFalse(manager.shutdown(0))
+        finally:release.set(); worker.join(2)
+    def test_terminal_pruning_is_bounded(self):
+        manager=TransferManager()
+        with patch('seele_maya.transfer.manager.MAX_TERMINAL_TASKS',2), patch('seele_maya.transfer.manager.TERMINAL_TASK_TTL_SECONDS',999999999):
+            for index in range(3):
+                tid=str(index); manager.items[tid]={"transferId":tid,"state":"completed","cancel":threading.Event(),"warnings":[],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:0%dZ"%index,"manifest":{},"digest":"x"}
+            manager._prune_terminal(); self.assertEqual(2,len(manager.items)); self.assertNotIn('0',manager.items)
+    def test_cancel_after_import_lock_does_not_import(self):
+        class Importer(object):
+            def readiness(self,name,refresh=False): return {'ready':True,'reason':None}
+            def import_transfer(self,item,root): raise AssertionError('import must not run')
+        manager=TransferManager(); manager.importer=Importer(); tid=str(uuid.uuid4()); event=threading.Event()
+        item={'transferId':tid,'state':'accepted','cancel':event,'warnings':[],'createdAt':'x','updatedAt':'x','manifest':{'target':{'format':'fbx'},'entryFileId':'m','files':[{'id':'m'}]},'digest':'x'}; manager.items[tid]=item
+        class CancellingLock(object):
+            def __enter__(self): event.set(); manager.transition(tid,'cancel_pending')
+            def __exit__(self,*args): pass
+        manager.import_lock=CancellingLock()
+        with tempfile.TemporaryDirectory() as root, patch('seele_maya.transfer.manager.staging_root',return_value=root), patch('seele_maya.transfer.manager.download_file'), patch('seele_maya.transfer.manager.validate_dependencies'), patch('seele_maya.transfer.manager.cleanup_staging'):
+            manager._run(tid)
+        self.assertEqual('cancelled',manager.get(tid)['state'])
     def _cancel_import_state(self,state):
         class Importer(object):
             def __init__(self): self.rollback_calls=0

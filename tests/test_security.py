@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0,os.path.abspath('SeeleMaya/scripts'))
 from seele_maya.contract.validator import _validate_path, ContractError
 from seele_maya.transfer.downloader import ByteBudget
-from seele_maya.transfer.staging import safe_path, _assert_no_links
+from seele_maya.transfer.staging import safe_path, _assert_no_links, staged_file
 import seele_maya.transfer.downloader as downloader
 
 class TestPaths(unittest.TestCase):
@@ -27,6 +27,13 @@ class TestPaths(unittest.TestCase):
             # A platform alias such as macOS /var -> /private/var is outside the
             # trusted data root and must not make a safe staging child fail.
             _assert_no_links(child,root)
+    @unittest.skipUnless(os.name=='nt','Windows handle-relative staging only')
+    def test_windows_handle_relative_write_and_rename(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root,'files','nested'))
+            with staged_file(root,'nested/a.bin') as output:
+                output.write(b'abc'); output.commit()
+            with open(os.path.join(root,'files','nested','a.bin'),'rb') as stream:self.assertEqual(b'abc',stream.read())
 
 class TestBudget(unittest.TestCase):
     def test_transfer_total(self):

@@ -1,6 +1,7 @@
 import re
 import uuid
 import os
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from ..config import MAX_CREATED_AT_FUTURE_SECONDS, MAX_FILES, MAX_TOTAL_BYTES, MAX_MANIFEST_TTL_SECONDS
 from ..formats import CONTENT_TYPES, FORMAT_SPECS, TEXTURE_EXTENSIONS, format_spec
@@ -53,10 +54,13 @@ def validate_manifest(m, receiver_id, now=None):
     except (TypeError,ValueError): raise ContractError("MANIFEST_INVALID", "manifest.limits is invalid")
     if max_files<1 or max_bytes<0: raise ContractError("MANIFEST_INVALID", "manifest.limits is invalid")
     if len(files)>max_files: raise ContractError("FILE_LIMIT_EXCEEDED", "file count exceeds limit")
-    ids=set(); paths=set(); total=0; model_ids=set()
+    ids=set(); paths=set(); canonical_paths=set(); total=0; model_ids=set()
     for f in files:
         if not isinstance(f, dict) or not isinstance(f.get("id"),str) or not f.get("id") or f.get("id") in ids or f.get("path") in paths: raise ContractError("MANIFEST_INVALID", "duplicate or invalid file")
         ids.add(f.get("id")); paths.add(f.get("path"))
+        canonical_path=unicodedata.normalize("NFC",str(f.get("path",""))).casefold()
+        if canonical_path in canonical_paths: raise ContractError("PATH_COLLISION","manifest paths collide on supported filesystems")
+        canonical_paths.add(canonical_path)
         if f.get("kind") not in ("MODEL","AUXILIARY","TEXTURE"): raise ContractError("MANIFEST_INVALID","file kind is unsupported")
         p=f.get("path", ""); _validate_path(p)
         file_format=f.get("format"); extension=os.path.splitext(p)[1].lower()

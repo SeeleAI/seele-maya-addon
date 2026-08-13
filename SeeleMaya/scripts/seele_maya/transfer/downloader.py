@@ -1,7 +1,7 @@
-import hashlib, http.client, ipaddress, socket, ssl
+import hashlib, http.client, ipaddress, socket, ssl, time
 from urllib.parse import urljoin, urlparse
 from .staging import staged_file
-from ..config import ALLOWED_DOWNLOAD_HOSTS
+from ..config import ALLOWED_DOWNLOAD_HOSTS, DOWNLOAD_DEADLINE_SECONDS
 from .. import __version__
 
 MAX_REDIRECTS=4
@@ -78,8 +78,9 @@ class ByteBudget(object):
         if self.used > self.maximum: raise ValueError("SIZE_LIMIT_EXCEEDED")
 
 def download_file(spec, root, cancel_event, budget):
-    url=spec.get("downloadUrl"); expected=int(spec["sizeBytes"])
+    url=spec.get("downloadUrl"); expected=int(spec["sizeBytes"]); deadline=time.monotonic()+DOWNLOAD_DEADLINE_SECONDS
     for redirect_count in range(MAX_REDIRECTS+1):
+        if time.monotonic()>deadline: raise ValueError("DOWNLOAD_DEADLINE_EXCEEDED")
         if not url_allowed(url): raise ValueError("URL_NOT_ALLOWED" if redirect_count==0 else "REDIRECT_NOT_ALLOWED")
         connection,response=_request(url)
         try:
@@ -94,6 +95,7 @@ def download_file(spec, root, cancel_event, budget):
             with staged_file(root,spec["path"]) as staged:
                 while True:
                     if cancel_event.is_set(): raise ValueError("CANCELLED")
+                    if time.monotonic()>deadline: raise ValueError("DOWNLOAD_DEADLINE_EXCEEDED")
                     chunk=response.read(1024*1024)
                     if not chunk: break
                     total += len(chunk); budget.add(len(chunk))

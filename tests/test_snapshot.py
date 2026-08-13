@@ -5,7 +5,7 @@ from seele_maya.maya_api import snapshot
 from seele_maya.maya_api.importer import MayaImporter
 
 class FakeScene(object):
-    def __init__(self): self.nodes={'old':'|old','new':'|new'}; self.deleted=[]; self.ns=':'; self.selection=[]; self.namespaces={':','seele_x'}
+    def __init__(self): self.nodes={'old':'|old','new':'|new'}; self.deleted=[]; self.ns=':'; self.selection=[]; self.namespaces={':','seele_x'}; self.modified=False
     def ls(self,value=None,long=False,uuid=False,selection=False):
         if selection:return list(self.selection)
         if uuid:return [next((key for key,node in self.nodes.items() if node==value),value if value in self.nodes else '')]
@@ -27,6 +27,9 @@ class FakeScene(object):
             self.deleted.append(node)
             for key,value in list(self.nodes.items()):
                 if value==node:self.nodes.pop(key)
+    def file(self,query=False,modified=None,**kwargs):
+        if query:return self.modified
+        if modified is not None:self.modified=modified
 
 class TestSnapshot(unittest.TestCase):
     def test_uuid_delta_and_rollback(self):
@@ -47,3 +50,9 @@ class TestSnapshot(unittest.TestCase):
         cmds=FakeScene(); importer=MayaImporter(cmds); before=snapshot.capture(cmds)
         with patch('seele_maya.maya_api.importer.snapshot.restore_environment',side_effect=RuntimeError('restore failed')), patch.object(importer,'rollback',side_effect=RuntimeError('delete failed')):
             with self.assertRaisesRegex(snapshot.RollbackError,'ROLLBACK_FAILED'): importer._restore_or_rollback(before,'seele_x')
+    def test_success_restore_marks_scene_modified(self):
+        cmds=FakeScene(); before=snapshot.capture(cmds); self.assertFalse(before['sceneModified'])
+        MayaImporter(cmds)._restore_or_rollback(before,'seele_x'); self.assertTrue(cmds.modified)
+    def test_rollback_restores_previous_modified_state(self):
+        cmds=FakeScene(); before=snapshot.capture(cmds); cmds.modified=True
+        snapshot.rollback(cmds,{'snapshot':before,'createdUuids':(),'namespace':None}); self.assertFalse(cmds.modified)

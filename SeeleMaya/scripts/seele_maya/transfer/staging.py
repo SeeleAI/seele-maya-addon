@@ -53,6 +53,11 @@ class _StagedFile(object):
         self.path=safe_path(root,relative); self.part=self.path+".part"; self.parent_fd=None; self.file=None; self.committed=False
     def __enter__(self):
         parent=os.path.dirname(self.path); leaf=os.path.basename(self.path)
+        if os.name=="nt":
+            from . import windows_staging
+            self.parent_fd=windows_staging.open_parent(os.path.abspath(self.root),self.relative)
+            self.file=windows_staging.create_part(self.parent_fd,leaf)
+            return self
         supports_dir_fd=(os.name!="nt" and hasattr(os,"O_NOFOLLOW") and hasattr(os,"O_DIRECTORY"))
         if supports_dir_fd:
             root_fd=os.open(os.path.abspath(self.root),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
@@ -72,8 +77,14 @@ class _StagedFile(object):
         return self
     def write(self,value): return self.file.write(value)
     def commit(self):
-        self.file.flush(); os.fsync(self.file.fileno()); self.file.close(); self.file=None
-        if self.parent_fd is not None:
+        if os.name=="nt":
+            from . import windows_staging
+            windows_staging.rename_part(self.file,self.parent_fd,os.path.basename(self.path)); self.file.close(); self.file=None
+        else:
+            self.file.flush(); os.fsync(self.file.fileno()); self.file.close(); self.file=None
+        if os.name=="nt":
+            pass
+        elif self.parent_fd is not None:
             leaf=os.path.basename(self.path); os.replace(leaf+".part",leaf,src_dir_fd=self.parent_fd,dst_dir_fd=self.parent_fd)
         else:
             _assert_no_links(os.path.dirname(self.path),os.path.dirname(os.path.dirname(self.path)))
@@ -83,10 +94,14 @@ class _StagedFile(object):
         if self.file is not None: self.file.close()
         if not self.committed:
             try:
-                if self.parent_fd is not None: os.unlink(os.path.basename(self.path)+".part",dir_fd=self.parent_fd)
+                if self.parent_fd is not None and os.name!="nt": os.unlink(os.path.basename(self.path)+".part",dir_fd=self.parent_fd)
                 else: os.remove(self.part)
             except OSError: pass
-        if self.parent_fd is not None: os.close(self.parent_fd)
+        if self.parent_fd is not None:
+            if os.name=="nt":
+                from . import windows_staging
+                windows_staging.close_handle(self.parent_fd)
+            else: os.close(self.parent_fd)
 
 def staged_file(root,relative):
     value=_StagedFile(root,relative); value.root=root; value.relative=relative; return value

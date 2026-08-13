@@ -26,6 +26,8 @@ def initializePlugin(plugin):
 
 def uninitializePlugin(plugin):
     from seele_maya.bridge.server import stop
-    stop()
+    result=stop()
+    if result.get("error")=="WORKERS_STILL_RUNNING":
+        raise RuntimeError("Cannot unload SEELE Maya plug-in while transfer workers are still running")
     if om:
         om.MFnPlugin(plugin).deregisterCommand("seeleMayaStatus")

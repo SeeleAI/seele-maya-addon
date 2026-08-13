@@ -5,7 +5,7 @@ SEELE → Maya 2022+ 的 `dcc-transfer.v1` 接收插件。它提供仅监听 loo
 ## 当前格式范围
 
 - FBX、OBJ、ABC：P0 格式；只有真实 Maya runtime probe 通过后才会在 health 中声明 ready。
-- DAE：实验性 P1 格式；仅在对应插件、translator 和实际导入入口均通过探测后启用。
+- DAE：0.2.0 暂不对外声明 ready；取得 Maya golden import 证据后再启用。
 - USD、USDA、USDC：0.2.0 明确禁用。当前没有导入 handler 或可启用路径，即使安装了 `mayaUsdPlugin` 也不会声明 ready。
 - 普通 Python 环境只提供 mock health、CORS 和 contract 测试，不接受真实 transfer，也不会降级为 mock importer。
 
@@ -23,15 +23,15 @@ OBJ 引用的 MTL 未提供时，插件仍导入几何，并以 `OBJ_MTL_NOT_PRO
 
 ## 配置
 
-默认 exact Origin allowlist 包含：
+公开生产版默认 exact Origin allowlist 仅包含：
 
 ```text
-https://code4agent-feature-maya-dcc-server-web.seele.chat
+https://www.seeles.ai
 ```
 
-`SEELE_ALLOWED_ORIGINS` 和 `SEELE_ALLOWED_DOWNLOAD_HOSTS` 使用逗号分隔，只用于追加可信来源或下载域名；不支持 `*`。插件已经内置 SEELE 官方静态资源、S3、CloudFront 和 Azure Blob 下载域名。下载只允许 HTTPS，且每次 redirect 都必须继续满足 allowlist 和网络安全检查。
+Feature 测试 Origin 不包含在公开生产包中。测试构建只允许 `https://code4agent-feature-maya-dcc-server-web.seele.chat`。`SEELE_ALLOWED_ORIGINS` 和 `SEELE_ALLOWED_DOWNLOAD_HOSTS` 使用逗号分隔，只用于追加可信来源或下载域名；不支持 `*`。插件已经内置 SEELE 官方静态资源、S3、CloudFront 和 Azure Blob 下载域名。下载只允许 HTTPS，且每次 redirect 都必须继续满足 allowlist 和网络安全检查。
 
-下载 host 采用 IDNA canonicalization 后的 exact match，不自动信任子域；DNS 结果必须全部是公网地址，连接固定到已验证 IP，并继续使用原始 hostname 做 TLS 校验。macOS/Linux 使用逐段 `openat`/`O_NOFOLLOW` 和 directory fd 完成 staging 写入与原子替换；Windows 标准库缺少等价能力，junction/reparse 竞态仍需平台原生实现，属于发布门禁。
+下载 host 采用 IDNA canonicalization 后的 exact match，不自动信任子域；DNS 结果必须全部是公网地址，连接固定到已验证 IP，并继续使用原始 hostname 做 TLS 校验。macOS/Linux 使用逐段 `openat`/`O_NOFOLLOW` 和 directory fd 完成 staging 写入与原子替换；Windows 使用 handle-relative `NtCreateFile`/`NtSetInformationFile`，逐段拒绝 reparse point，并基于同一父目录 handle 创建和重命名临时文件。
 
 ## 本地测试（无需 Maya）
 

@@ -61,7 +61,7 @@ def diff(cmds,before):
         metadata.append({"uuid":node_uuid,"node":node,"type":node_type,"parents":parents})
     return {"createdUuids":tuple(created),"createdNodes":tuple(created.values()),"createdNodeMetadata":tuple(metadata),"createdReferences":tuple(references-before.get("references",set()))}
 
-def restore_environment(cmds,before):
+def restore_environment(cmds,before,restore_modified=True):
     cmds.namespace(setNamespace=before["namespace"])
     cmds.currentTime(before["time"],edit=True)
     for key,flag in (("min","minTime"),("max","maxTime"),("ast","animationStartTime"),("aet","animationEndTime")):
@@ -71,7 +71,7 @@ def restore_environment(cmds,before):
     if cmds.upAxis(query=True,axis=True)!=before["upAxis"]: cmds.upAxis(axis=before["upAxis"],updateView=False)
     if before.get("renderLayer") is not None: cmds.editRenderLayerGlobals(currentRenderLayer=before["renderLayer"])
     if before.get("currentTool") is not None: cmds.setToolTo(before["currentTool"])
-    if before.get("sceneModified") is not None: cmds.file(modified=before["sceneModified"])
+    if restore_modified and before.get("sceneModified") is not None: cmds.file(modified=before["sceneModified"])
     existing=[node for node in before["selection"] if cmds.objExists(node)]
     cmds.select(existing,replace=True) if existing else cmds.select(clear=True)
 

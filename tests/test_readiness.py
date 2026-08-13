@@ -24,6 +24,8 @@ class TestReadiness(unittest.TestCase):
         result=MayaImporter(FakeCmds()).readiness('obj'); self.assertFalse(result['ready']); self.assertEqual('OBJ_TRANSLATOR_UNAVAILABLE',result['reason'])
     def test_usd_fails_closed_until_import_surface_verified(self):
         result=MayaImporter(FakeCmds()).readiness('usd'); self.assertFalse(result['ready']); self.assertEqual('USD_IMPORT_SURFACE_UNAVAILABLE',result['reason'])
+    def test_dae_fails_closed_without_golden_evidence(self):
+        result=MayaImporter(FakeCmds(('DAE_FBX',))).readiness('dae'); self.assertFalse(result['ready']); self.assertEqual('DAE_IMPORT_SURFACE_UNAVAILABLE',result['reason'])
     def test_cache_and_refresh(self):
         cmds=FakeCmds(('OBJ',)); importer=MayaImporter(cmds); self.assertTrue(importer.readiness('obj')['ready']); cmds.translators.clear(); self.assertTrue(importer.readiness('obj')['ready']); self.assertFalse(importer.readiness('obj',refresh=True)['ready'])
     def test_abc_import_runs_inside_transfer_namespace(self):
