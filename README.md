@@ -21,6 +21,10 @@
 
 > **Receiver, not generator.** This repository contains the Maya-side transfer receiver and import bridge. The browser-based [SEELE AI 3D Model Generator](https://www.seeles.ai/features/tools/ai-3d-model-generator-entry) and SEELE Workspace are separate services.
 
+<p align="center">
+  <img src="docs/images/import-flow.svg" width="1200" alt="Validated transfer flow from Seele Web through the local bridge at 127.0.0.1:9879 into an open Autodesk Maya scene for FBX, OBJ, and Alembic assets">
+</p>
+
 ## Why Seele-art-maya?
 
 - **Continue in Maya.** Create or select an asset in SEELE Workspace, send it to an open Maya session, then inspect and edit it with Maya's own tools.
