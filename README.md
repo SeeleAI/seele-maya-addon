@@ -1,120 +1,49 @@
-# SEELE Transfer for Maya
+<h1 align="center">Seele-art-maya</h1>
 
-![Maya 2022+](https://img.shields.io/badge/Autodesk%20Maya-2022%2B-0696D7?logo=autodesk&logoColor=white)
-![Version 0.2.0](https://img.shields.io/badge/Version-0.2.0-4c8bf5)
+<p align="center"><strong>A secure localhost receiver and Autodesk Maya import bridge for validated 3D asset transfers from SEELE Workspace.</strong></p>
 
-**[Download SEELE Transfer for Maya 0.2.0](https://static.seeles.ai/kokokeepall/Plugin/Maya/SEELE-Maya-Transfer-0.2.0.zip)**
+<p align="center">
+  <a href="https://www.autodesk.com/products/maya/overview"><img src="https://img.shields.io/badge/Autodesk%20Maya-2022%2B-0696D7?style=for-the-badge&amp;logo=autodesk&amp;logoColor=white" alt="Autodesk Maya 2022 or newer"></a>
+  <a href="#production-download"><img src="https://img.shields.io/badge/Production-0.2.0-4C8BF5?style=for-the-badge" alt="Production version 0.2.0"></a>
+  <a href="#compatibility"><img src="https://img.shields.io/badge/Platform-Windows%20%2F%20macOS-6E6E6E?style=for-the-badge" alt="Windows and macOS"></a>
+</p>
 
-SEELE Transfer for Maya is a Maya plugin/add-on that receives and imports 3D assets sent from SEELE Workspace. It is a secure localhost receiver and Maya import bridge—not an AI generator running inside Maya.
+<p align="center">
+  <a href="https://www.seeles.ai/features/tools/ai-3d-model-generator-entry">Create with SEELE AI 3D</a> &middot;
+  <a href="#production-download">Download 0.2.0</a> &middot;
+  <a href="#quick-start">Quick start</a> &middot;
+  <a href="#development-and-validation">Development</a>
+</p>
 
-For browser-based generation, use [AI 3D Model Generator: Start Creating 3D Assets | SEELE AI](https://www.seeles.ai/features/tools/ai-3d-model-generator-entry). After an asset is available in SEELE Workspace, this plugin provides the Maya-side path to send 3D assets to Maya.
+<p align="center">
+  FBX, OBJ, and Alembic assets arrive through a local browser-to-Maya handoff at <code>127.0.0.1:9879</code> by default.
+</p>
 
-## What It Does
+> **Receiver, not generator.** This repository contains the Maya-side transfer receiver and import bridge. The browser-based [SEELE AI 3D Model Generator](https://www.seeles.ai/features/tools/ai-3d-model-generator-entry) and SEELE Workspace are separate services.
 
-- Receives `dcc-transfer.v1` asset-transfer manifests from the production SEELE website.
-- Downloads declared files over HTTPS, stages them safely, and checks the manifest-provided file size and SHA-256 digest before import.
-- Imports FBX, OBJ, or Alembic (`.abc`) only when the current Maya runtime reports the required importer capability as ready.
-- Runs Maya imports on Maya's main thread and rolls back incomplete imports when possible.
-- Keeps its receiver local to the machine at `127.0.0.1:9879`.
+## Why Seele-art-maya?
 
-This repository contains the Maya receiver/import bridge only. SEELE Workspace and the AI 3D model generator are separate services.
+- **Continue in Maya.** Create or select an asset in SEELE Workspace, send it to an open Maya session, then inspect and edit it with Maya's own tools.
+- **Keep the receiver local.** The service binds to the loopback host `127.0.0.1` and uses port `9879` by default; it does not listen on a LAN or public interface.
+- **Validate before import.** The receiver checks the `dcc-transfer.v1` manifest, target receiver, expiry, paths, allowed HTTPS hosts, declared sizes, and SHA-256 digests before import.
+- **Respect Maya runtime capability.** FBX, OBJ, and Alembic are offered only when the running Maya environment reports the required translator, plug-in, or command as ready.
+- **Limit incomplete scene changes.** Imports run on Maya's main thread, and failed or cancelled work is rolled back when possible.
 
-## Who It Is For
+## Production download
 
-SEELE Transfer is for artists, technical artists, designers, and developers who create or select an asset in SEELE Workspace and want to continue working on it in Autodesk Maya. It is intended for a handoff workflow: create an asset on SEELE, send it to an open Maya session, inspect the imported scene, then continue using Maya's own tools.
+**[Download SEELE Maya Transfer 0.2.0](https://static.seeles.ai/kokokeepall/Plugin/Maya/SEELE-Maya-Transfer-0.2.0.zip)**
 
-## Requirements
+The URL above is the currently published production package. Maya modules must be installed as extracted files—do not point Maya at the ZIP directly.
 
-- Autodesk Maya **2022 or newer**.
-- Access to [seeles.ai](https://www.seeles.ai) and an internet connection while transferred assets are downloading.
-- Permission for Maya to bind the local loopback port `127.0.0.1:9879`.
-- The official 0.2.0 package, downloaded from the link above.
-
-## Install on Windows or macOS
-
-Maya modules must be installed as extracted files. **Do not point Maya at the ZIP directly.**
-
-1. Download and extract `SEELE-Maya-Transfer-0.2.0.zip`.
-2. Keep `SeeleMaya.mod` and the `SeeleMaya/` folder as siblings in the same directory. Do not rename either item.
-3. Copy both items into your personal Maya modules directory:
-
-   | Platform | Typical personal modules directory |
-   | --- | --- |
-   | Windows | `%USERPROFILE%\Documents\maya\modules\` |
-   | macOS | `~/Library/Preferences/Autodesk/maya/modules/` |
-
-   Create the `modules` directory if it does not exist.
-4. Restart Maya so it discovers `SeeleMaya.mod`.
-5. Open **Windows > Settings/Preferences > Plug-in Manager**, find `seele_maya_plugin.py`, load it, and enable **Auto load** if you want the receiver to start with Maya.
-
-### Upgrade
-
-1. Quit Maya completely.
-2. Replace the existing sibling pair—`SeeleMaya.mod` and `SeeleMaya/`—with the extracted pair from the new package.
-3. Restart Maya and confirm that `seele_maya_plugin.py` loads in Plug-in Manager.
-
-### Uninstall
-
-Quit Maya, then remove the installed `SeeleMaya.mod` file and its sibling `SeeleMaya/` folder from the Maya modules directory. The plugin's per-user transfer data is stored separately under the local SEELE application-data directory; removing the module does not automatically remove that data.
-
-## Quick Start
-
-1. Start Maya and load `seele_maya_plugin.py`.
-2. Confirm the local receiver is running; its fixed address is `127.0.0.1:9879`.
-3. In SEELE Workspace, choose an asset and use the Maya transfer action.
-4. SEELE sends a short-lived manifest to Maya. The receiver downloads, verifies, and imports the declared asset when its format is available in that Maya runtime.
-5. Inspect the imported scene, including geometry, materials, textures, scale, and hierarchy, before continuing production work.
-
-## Workflow
-
-```mermaid
-flowchart LR
-    A[Create or select a 3D asset in SEELE Workspace]
-    B[Send asset to Maya]
-    C[Local receiver at 127.0.0.1:9879]
-    D[HTTPS download and SHA-256 / size verification]
-    E[Maya runtime capability check]
-    F[Import into the Maya scene]
-
-    A --> B --> C --> D --> E --> F
-```
-
-## Compatibility
-
-| Format or environment | Status in 0.2.0 | Notes |
-| --- | --- | --- |
-| Autodesk Maya | Maya 2022+ | Requires the extracted module installation. |
-| FBX | Capability-driven | Available only when the running Maya runtime reports the FBX importer ready. |
-| OBJ | Capability-driven | Available only when the running Maya runtime reports the OBJ translator ready. Missing referenced MTL files can complete with an `OBJ_MTL_NOT_PROVIDED` warning; other declared-file validation failures are fatal. |
-| Alembic (`.abc`) | Capability-driven | Available only when the running Maya runtime reports `AbcImport` ready. |
-| DAE / COLLADA | Not advertised ready | The importer surface has not been product-validated for this release. |
-| USD, USDA, USDC | Disabled | No import handler is enabled in 0.2.0, including where `mayaUsdPlugin` is installed. |
-
-The plugin can report runtime readiness for FBX, OBJ, and Alembic import. That is not a claim that every asset variant has been validated on every Maya/OS combination; evaluate imports in your target Maya environment.
-
-## Security, Privacy, and Network Behavior
-
-- **Local receiver only:** the HTTP receiver binds to `127.0.0.1:9879`, not a public network interface.
-- **Production origin:** browser requests are accepted only from the exact origin `https://www.seeles.ai` by default. Wildcard origins are not supported.
-- **Allowed downloads:** transferred files must use HTTPS and an exact allowlisted SEELE download host. Redirects are checked again; lookalike subdomains, unsafe DNS results, and non-HTTPS URLs are rejected.
-- **Integrity checks:** declared content length is checked before download and each downloaded file is checked against its declared size and SHA-256 digest before import.
-- **Safe staging:** paths and collisions are validated before files are committed to the local staging area.
-- **No shell execution:** the receiver does not invoke a shell to process transfers; imports use the available Maya API/import surface.
-
-Optional `SEELE_ALLOWED_ORIGINS` and `SEELE_ALLOWED_DOWNLOAD_HOSTS` environment values append trusted, comma-separated entries for controlled deployments. They do not support `*`; administrators should add only hosts they trust.
-
-## Official Package Integrity
-
-The production package currently published at the download link above has the following release metadata:
-
-| Property | Value |
+| Release property | Value |
 | --- | --- |
 | Version | `0.2.0` |
+| Archive | `SEELE-Maya-Transfer-0.2.0.zip` |
 | File size | `26,793 bytes` |
 | SHA-256 | `d13cea96e9cb58597a127141127d9c14a854e61b12be8f933338e7cb67123415` |
 | Audited source commit | `b7b59a41d34fe1296b1a2cacee70a0d1eb948fe9` |
 
-To independently check a downloaded archive:
+Verify the downloaded archive before installation:
 
 ```powershell
 Get-FileHash .\SEELE-Maya-Transfer-0.2.0.zip -Algorithm SHA256
@@ -124,68 +53,133 @@ Get-FileHash .\SEELE-Maya-Transfer-0.2.0.zip -Algorithm SHA256
 shasum -a 256 SEELE-Maya-Transfer-0.2.0.zip
 ```
 
-## FAQ
+## Requirements
 
-### Is SEELE Transfer for Maya an AI 3D model generator?
+- Autodesk Maya **2022 or newer**.
+- Windows or macOS with a personal Maya modules directory.
+- Access to [seeles.ai](https://www.seeles.ai) and an internet connection while transferred files are downloaded.
+- Permission for Maya to bind the loopback receiver at `127.0.0.1:9879` by default.
+- The extracted official `0.2.0` package from the production link above.
 
-No. SEELE Transfer for Maya is a Maya plugin/add-on that receives, verifies, and imports 3D assets from SEELE Workspace. Use the [AI 3D Model Generator: Start Creating 3D Assets | SEELE AI](https://www.seeles.ai/features/tools/ai-3d-model-generator-entry) to generate assets in the browser.
+## Install
 
-### Can I send 3D assets to Maya directly from SEELE?
+1. Download and extract `SEELE-Maya-Transfer-0.2.0.zip`.
+2. Keep `SeeleMaya.mod` and the `SeeleMaya/` folder as siblings. Do not rename either item.
+3. Copy both items into your personal Maya modules directory:
 
-Yes, when Maya is open, `seele_maya_plugin.py` is loaded, and the local receiver is ready. SEELE Workspace sends a transfer manifest to the receiver at `127.0.0.1:9879`; the plugin then downloads and imports the asset if the required Maya importer is available.
+   | Platform | Typical personal modules directory |
+   | --- | --- |
+   | Windows | `%USERPROFILE%\Documents\maya\modules\` |
+   | macOS | `~/Library/Preferences/Autodesk/maya/modules/` |
 
-### Which import formats does the Maya plugin support?
+   Create the `modules` directory if it does not exist.
+4. Restart Maya so it discovers `SeeleMaya.mod`.
+5. Open **Windows → Settings/Preferences → Plug-in Manager**, find `seele_maya_plugin.py`, load it, and optionally enable **Auto load**.
 
-FBX, OBJ, and Alembic import are capability-driven: the plugin only reports them ready when that exact Maya runtime exposes the necessary importer. DAE is not advertised ready, and USD/USD variants are disabled in version 0.2.0.
+### Upgrade
 
-### Does the plugin send my Maya scene to SEELE?
+Quit Maya completely, replace the installed sibling pair (`SeeleMaya.mod` and `SeeleMaya/`) with the pair from the new archive, then restart Maya and confirm that `seele_maya_plugin.py` loads.
 
-The receiver's documented role is to accept an incoming transfer manifest and download the asset files it declares from allowlisted HTTPS hosts. It is not a scene-export or remote-control plugin.
+### Uninstall
 
-### Why is an OBJ imported without its materials?
+Quit Maya, then remove `SeeleMaya.mod` and its sibling `SeeleMaya/` folder from the modules directory. Per-user receiver and transfer data is stored separately under the local SEELE application-data directory and is not automatically removed with the module.
 
-An OBJ transfer without a provided referenced MTL file may import geometry and report `OBJ_MTL_NOT_PROVIDED`. Inspect the result and supply the asset's required material files when fidelity matters.
+## Quick start
 
-### Is this a public-network server?
+1. Start Maya and load `seele_maya_plugin.py`.
+2. Keep Maya open. The plug-in starts its local receiver at `127.0.0.1:9879` unless `SEELE_MAYA_PORT` overrides the default port.
+3. In SEELE Workspace, choose a ready 3D asset and use the Maya transfer action.
+4. The browser obtains a short-lived receiver challenge and sends a `dcc-transfer.v1` transfer manifest.
+5. The plug-in validates the request, downloads and verifies the declared files, checks importer readiness, and imports the asset.
+6. Inspect geometry, hierarchy, scale, materials, and textures before using the result in production.
 
-No. The receiver is fixed to the loopback address `127.0.0.1:9879`, so it is intended to accept requests from the local machine rather than listen on the LAN or internet.
+```mermaid
+flowchart LR
+    A[Create or select an asset in SEELE Workspace]
+    B[Send to Maya]
+    C[Local receiver<br/>127.0.0.1:9879 by default]
+    D[Validate manifest and HTTPS sources]
+    E[Verify size and SHA-256]
+    F[Check Maya importer readiness]
+    G[Import into the open scene]
+
+    A --> B --> C --> D --> E --> F --> G
+```
+
+## Compatibility
+
+| Format or environment | Status in 0.2.0 | Runtime boundary |
+| --- | --- | --- |
+| Autodesk Maya | Maya 2022+ | Install as an extracted Maya module on Windows or macOS. |
+| FBX (`.fbx`) | Capability-driven | Requires the `fbxmaya` plug-in and the `FBX` translator to be ready. Optional declared textures may include PNG, JPG/JPEG, TGA, TIF/TIFF, EXR, or BMP. |
+| OBJ (`.obj`) | Capability-driven | Requires the Maya `OBJ` translator. Declared MTL and texture dependencies are validated; a referenced MTL that was not provided can finish with `OBJ_MTL_NOT_PROVIDED`. |
+| Alembic (`.abc`) | Capability-driven | Requires the `AbcImport` plug-in and command to be ready. External dependencies are not accepted for this format. |
+| DAE / COLLADA (`.dae`) | Not advertised ready | Registry entry exists, but its import surface is not verified for this release. |
+| USD / USDA / USDC | Disabled | Registry entries exist, but no verified import handler is enabled in `0.2.0`, including when `mayaUsdPlugin` is installed. |
+| GLB, glTF, USDZ, STL, MA, MB, 3DS, ASS | Not supported | These formats are explicitly outside the accepted Maya transfer set in this release. |
+
+A readiness result proves that the required import surface is available in the current Maya process. It does **not** prove that every asset variant has been validated on every Maya and operating-system combination.
+
+## Security and privacy boundary
+
+- **Loopback host:** the receiver host is fixed to `127.0.0.1`; `SEELE_MAYA_PORT` can change the default port but not expose the host on a public interface.
+- **Exact browser origins:** production requests are accepted from the exact origin `https://www.seeles.ai` by default. Origin matching is not wildcard-based.
+- **Receiver challenge:** transfer submission uses a short-lived, single-use challenge tied to the receiver and requesting origin.
+- **HTTPS allowlist:** downloads require HTTPS on port 443 and an exact allowlisted host. Redirect targets are validated again; IP-literal hosts, credentials in URLs, fragments, unsafe DNS results, and lookalike subdomains are rejected.
+- **Manifest limits:** requests, file counts, aggregate transfer size, path shape, manifest lifetime, and concurrent work are bounded.
+- **Integrity checks:** each file requires a declared byte size and lowercase SHA-256 digest; both are verified before import.
+- **Safe staging:** traversal, reserved paths, case/Unicode collisions, staging conflicts, and unsafe filesystem targets are rejected.
+- **No shell import path:** downloads use HTTPS and imports use Maya's API/import surfaces; the receiver does not invoke a shell to process transferred assets.
+- **Inbound workflow only:** the documented receiver accepts transfer manifests and downloads their declared assets. It is not a Maya scene-export or remote-control service.
+
+Administrators can append controlled values with comma-separated `SEELE_ALLOWED_ORIGINS` and `SEELE_ALLOWED_DOWNLOAD_HOSTS`. Neither setting supports `*`; extending either allowlist expands the trust boundary and should be done deliberately.
 
 ## Troubleshooting
 
 ### Maya does not discover the module
 
-Verify that `SeeleMaya.mod` and `SeeleMaya/` are siblings inside a Maya `modules` directory, not inside the ZIP or an extra nested folder. Restart Maya after correcting the location.
+Confirm that `SeeleMaya.mod` and `SeeleMaya/` are siblings directly inside a Maya `modules` directory—not inside the ZIP or an extra nested directory—then restart Maya.
 
-### The plug-in will not load
+### The plug-in does not load
 
-Use Maya 2022 or newer. In Plug-in Manager, load `seele_maya_plugin.py` and review Maya's Script Editor for the specific load error. A full Maya restart after an upgrade clears a previously loaded module version.
+Use Maya 2022 or newer. Load `seele_maya_plugin.py` in Plug-in Manager and inspect Maya's Script Editor for the specific error. Restart Maya after replacing an already loaded version.
 
 ### SEELE cannot connect to Maya
 
-Keep Maya open and the plugin loaded. Confirm that local security software is not blocking localhost port `9879`, then retry from the exact production origin `https://www.seeles.ai`.
+Keep Maya open and the plug-in loaded. Confirm that local security software is not blocking the configured loopback port, and retry from the exact production origin `https://www.seeles.ai`. If `SEELE_MAYA_PORT` is set, the browser integration must target that same port.
 
-### A format is reported unavailable
+### A format is unavailable
 
-The plugin fails closed when an importer is unavailable. Check that the required Maya importer is installed and available in that Maya session. DAE is not ready for this public release, and USD/USD variants are intentionally disabled.
+The receiver fails closed when the required Maya import surface is unavailable. Check the relevant translator, plug-in, or command in that Maya session. DAE and USD-family imports remain intentionally unavailable in `0.2.0`.
 
 ### Download or verification fails
 
-Confirm internet access and retry the transfer. The receiver rejects URLs outside its HTTPS allowlist and rejects declared files when their size or SHA-256 digest does not match; these checks are deliberate safeguards, not import fallbacks.
+Confirm internet access and retry. The receiver deliberately rejects non-allowlisted URLs, unsafe redirects or DNS results, size mismatches, hash mismatches, and unsafe paths rather than falling back to an unchecked import.
 
-## Development and Tests
+### OBJ imports without expected materials
 
-The repository includes pure-Python contract, security, readiness, HTTP, and format tests that can run without Maya:
+A referenced MTL that was not supplied can produce an `OBJ_MTL_NOT_PROVIDED` warning while geometry still imports. Inspect the result and transfer the required material and texture dependencies when fidelity matters.
+
+## Development and validation
+
+Pure-Python contract, format, HTTP, readiness, snapshot, transfer, and security tests run without Maya:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
 ```
 
-For Maya runtime smoke coverage, run the smoke test through the `mayapy` executable for each supported Maya/OS build. A smoke pass establishes evidence for that exact environment only; release validation should additionally cover golden FBX/OBJ/ABC imports, cancellation/rollback, and path-safety behavior.
+The GitHub Actions matrix runs these tests on Windows and macOS with Python 3.7 and 3.10. Maya runtime smoke coverage must use the `mayapy` executable for the exact Maya and OS combination being evaluated:
 
 ```powershell
 & "C:\Program Files\Autodesk\Maya2022\bin\mayapy.exe" tests_maya\smoke.py
 ```
 
+A smoke pass establishes evidence only for that exact runtime. Release validation should also cover representative FBX, OBJ, and ABC assets, dependency handling, cancellation and rollback, and path-safety behavior.
+
+## Support
+
+Report defects and integration feedback through [GitHub Issues](https://github.com/SeeleAI/Seele-art-maya/issues). Include the Maya version, operating system, plug-in revision, transfer result, and a redacted Script Editor excerpt. Do not include credentials or signed download URLs.
+
 ## License
 
-This repository currently does not include a `LICENSE` file. Do not infer an open-source or redistribution license from the repository or package; obtain the applicable terms from SEELE before redistribution or commercial use.
+This repository does not currently include a `LICENSE` file. Do not infer an open-source or redistribution license from the source repository or production archive; obtain the applicable terms from SEELE before redistribution or commercial use.
